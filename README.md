@@ -96,12 +96,15 @@ The production backend invokes the deployed Agent Runtime resource directly. The
 
 ### Production Runtime
 
-- **GCP project:** `gleamail`
-- **Region:** `us-central1`
-- **Agent Runtime:** `projects/1093246532955/locations/us-central1/reasoningEngines/2313598414480211968`
-- **Backend Cloud Run revision:** `movescore-backend-00004-7ht`
-- **Frontend Cloud Run revision:** `movescore-frontend-00001-kwg`
-- **Runtime service account:** `movescore-backend-sa@gleamail.iam.gserviceaccount.com`
+The production system runs on Google Cloud in `us-central1` with:
+
+- **Gemini Enterprise Agent Platform / Agent Runtime** for the deployed Google ADK workflow
+- **Cloud Run** for the Next.js frontend and FastAPI backend
+- **A dedicated runtime service account** with least-privilege IAM
+- **Secret Manager** for the restricted Gemini API credential
+- **Cloud Storage** for temporary media processing with a one-day lifecycle
+
+Specific project numbers, runtime resource IDs, revision IDs, and service-account identifiers are intentionally omitted from the public README.
 
 ---
 
