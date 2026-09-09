@@ -27,7 +27,7 @@ The song follows the dance. Not the other way around.
 ```
 1. Land on the page — no sign up
 2. Click "Start Creating"
-3. Upload your dance video (MP4, MOV, WebM — up to 100MB)
+3. Upload your dance video (MP4 only, up to 100MB and 60 seconds)
 4. Select: Style, Mood, Energy, Movement Feel (optional)
 5. Click "Generate Music"
 6. See movement analysis: "6 moments detected · Intro → Hit → Spin → Freeze → Drop → Final Pose"

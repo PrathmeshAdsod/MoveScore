@@ -14,15 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import tempfile
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
 from agent.workflow import ChoreographyMusicAgent
 from schemas.api import ChoreographySummary, RunAgentRequest, RunAgentResponse
-from services import storage as gcs
 from utils.errors import AgenticCinemaError
 
 logger = logging.getLogger(__name__)
@@ -52,30 +48,12 @@ async def run_agent(request: RunAgentRequest) -> RunAgentResponse:
         preferences.output_type,
     )
 
-    # Download video bytes from GCS only when re-analysis is needed
-    video_bytes: bytes = b""
-    video_mime_type: str = "video/mp4"
-
-    if request.cached_choreography is None:
-        try:
-            fd, tmp_str = tempfile.mkstemp(suffix=".mp4")
-            tmp_path = Path(tmp_str)
-            os.close(fd)
-            gcs.download_to_file(gcs_uri, tmp_path)
-            video_bytes = tmp_path.read_bytes()
-            tmp_path.unlink(missing_ok=True)
-        except AgenticCinemaError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.message)
-        except Exception as exc:
-            logger.error("Failed to download video for analysis: %s", exc)
-            raise HTTPException(status_code=500, detail="Failed to retrieve uploaded video.")
-
     # Run the ADK agent in a thread to avoid blocking the event loop
     try:
         result = await asyncio.to_thread(
             _agent.run,
-            video_bytes,
-            video_mime_type,
+            b"",
+            "video/mp4",
             gcs_uri,
             preferences,
             request.cached_choreography,

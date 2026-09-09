@@ -21,14 +21,10 @@ router = APIRouter()
 
 ACCEPTED_MIME_TYPES = {
     "video/mp4",
-    "video/quicktime",
-    "video/webm",
-    "video/x-msvideo",
-    "video/avi",
 }
 
 # Some browsers send incorrect MIME types for video files
-ACCEPTED_EXTENSIONS = {".mp4", ".mov", ".webm", ".avi"}
+ACCEPTED_EXTENSIONS = {".mp4"}
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -42,11 +38,11 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
     filename = file.filename or "video"
     extension = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    if content_type not in ACCEPTED_MIME_TYPES and extension not in ACCEPTED_EXTENSIONS:
+    if extension not in ACCEPTED_EXTENSIONS or content_type not in ACCEPTED_MIME_TYPES:
         raise HTTPException(
             status_code=415,
             detail=f"Unsupported file type '{content_type}'. "
-            "Please upload an MP4, MOV, or WebM file.",
+            "Please upload an MP4 file.",
         )
 
     # Read file into memory
@@ -65,19 +61,15 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
     if size_bytes == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # Normalize MIME type
-    if content_type not in ACCEPTED_MIME_TYPES:
-        # Infer from extension
-        ext_map = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
-        content_type = ext_map.get(extension, "video/mp4")
-
     # Mandatory video duration validation (max 60 seconds)
     import tempfile
     from pathlib import Path
 
     from services.ffmpeg_service import validate_video_duration
 
-    with tempfile.NamedTemporaryFile(suffix=extension or ".mp4", delete=False) as tmp_file:
+    with tempfile.NamedTemporaryFile(
+        suffix=extension or ".mp4", delete=False
+    ) as tmp_file:
         tmp_path = Path(tmp_file.name)
         tmp_file.write(video_bytes)
 
@@ -90,7 +82,9 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
         logger.error("Duration validation failed: %s", exc)
-        raise HTTPException(status_code=400, detail=f"Could not validate video duration: {exc}")
+        raise HTTPException(
+            status_code=400, detail=f"Could not validate video duration: {exc}"
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -105,7 +99,9 @@ async def upload_video(file: UploadFile = File(...)) -> UploadResponse:
         logger.error("Upload failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to upload video.")
 
-    logger.info("Video uploaded: %s (%d bytes, type=%s)", gcs_uri, size_bytes, content_type)
+    logger.info(
+        "Video uploaded: %s (%d bytes, type=%s)", gcs_uri, size_bytes, content_type
+    )
 
     return UploadResponse(
         gcs_uri=gcs_uri,

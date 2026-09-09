@@ -10,9 +10,10 @@ RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install only pinned runtime dependencies. Test and formatting tools stay out
+# of the production image.
+COPY requirements-prod.txt .
+RUN pip install --no-cache-dir -r requirements-prod.txt
 
 # Copy application code
 COPY . .

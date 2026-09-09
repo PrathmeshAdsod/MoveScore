@@ -77,9 +77,9 @@ DEPLOY_CMD=(
   --timeout 600
   --memory 2Gi
   --cpu 2
-  --concurrency 10
+  --concurrency 1
   --min-instances 0
-  --max-instances 10
+  --max-instances 1
   --allow-unauthenticated
   --project "${PROJECT_ID}"
 )

@@ -26,6 +26,7 @@ from pathlib import Path
 from google import genai
 
 from config import settings
+from services.credentials import get_gemini_api_key
 from utils.errors import MusicGenerationError
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ AUDIO_EXTENSION = ".mp3"
 
 def _get_client() -> genai.Client:
     """Return a configured google-genai client using the Gemini API key."""
-    return genai.Client(api_key=settings.gemini_api_key)
+    return genai.Client(vertexai=False, api_key=get_gemini_api_key())
 
 
 def generate_music(
@@ -80,7 +81,9 @@ def generate_music(
         target_secs,
         output_type,
     )
-    logger.debug("Full Lyria prompt (%d chars): %s", len(full_prompt), full_prompt[:300])
+    logger.debug(
+        "Full Lyria prompt (%d chars): %s", len(full_prompt), full_prompt[:300]
+    )
 
     client = _get_client()
 

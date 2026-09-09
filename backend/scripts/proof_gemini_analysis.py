@@ -66,7 +66,9 @@ def main() -> None:
         print(f"\nFAILED: {exc}")
         print("\nTroubleshooting:")
         print("  - Verify GEMINI_API_KEY is correct")
-        print(f"  - Verify model '{settings.gemini_model}' is available in your account")
+        print(
+            f"  - Verify model '{settings.gemini_model}' is available in your account"
+        )
         print("  - Check the video file is valid and not corrupted")
         sys.exit(1)
 
@@ -95,7 +97,9 @@ def main() -> None:
     print(f"  {labels}")
 
     if choreography.analysis_confidence.value == "low":
-        print("\n⚠️  LOW CONFIDENCE — fast movements may have been missed at ~1 FPS sampling.")
+        print(
+            "\n⚠️  LOW CONFIDENCE — fast movements may have been missed at ~1 FPS sampling."
+        )
         print("   Consider testing with a 0.5x slowed copy of the video.")
 
     # Save full JSON for inspection

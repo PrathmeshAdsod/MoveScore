@@ -62,7 +62,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --cpu 1 \
   --concurrency 80 \
   --min-instances 0 \
-  --max-instances 10 \
+  --max-instances 1 \
   --allow-unauthenticated \
   --project "${PROJECT_ID}"
 

@@ -12,7 +12,8 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class MoveType(str, Enum):
+# Agent Runtime currently executes Python 3.10, where StrEnum is unavailable.
+class MoveType(str, Enum):  # noqa: UP042
     entrance = "entrance"
     accent = "accent"
     transition = "transition"
@@ -27,13 +28,13 @@ class MoveType(str, Enum):
     final_pose = "final_pose"
 
 
-class EnergyLevel(str, Enum):
+class EnergyLevel(str, Enum):  # noqa: UP042
     low = "low"
     medium = "medium"
     high = "high"
 
 
-class AnalysisConfidence(str, Enum):
+class AnalysisConfidence(str, Enum):  # noqa: UP042
     high = "high"
     medium = "medium"
     low = "low"
@@ -123,7 +124,9 @@ class ChoreographySchema(BaseModel):
             "cooldown": "Cooldown",
         }
         for km in self.key_moments:
-            mapped = label_map.get(km.type.value, km.type.value.replace("_", " ").title())
+            mapped = label_map.get(
+                km.type.value, km.type.value.replace("_", " ").title()
+            )
             if mapped not in moment_labels:
                 moment_labels.append(mapped)
 
@@ -134,5 +137,6 @@ class ChoreographySchema(BaseModel):
             "overall_energy": self.overall_energy.value,
             "movement_tempo_bpm": self.movement_tempo_bpm,
             "analysis_confidence": self.analysis_confidence.value,
-            "low_confidence_warning": self.analysis_confidence == AnalysisConfidence.low,
+            "low_confidence_warning": self.analysis_confidence
+            == AnalysisConfidence.low,
         }

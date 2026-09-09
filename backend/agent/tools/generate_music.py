@@ -49,7 +49,9 @@ def generate_music_tool(
 
         # Upload MP3 to GCS
         blob_name = gcs.make_blob_name("audio", "mp3")
-        audio_gcs_uri = gcs.upload_file(audio_path, blob_name, content_type="audio/mpeg")
+        audio_gcs_uri = gcs.upload_file(
+            audio_path, blob_name, content_type="audio/mpeg"
+        )
         return audio_gcs_uri
 
     finally:

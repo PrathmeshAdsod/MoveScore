@@ -6,7 +6,10 @@ Tests the prompt construction logic without making any API calls.
 
 from __future__ import annotations
 
-from prompts.music_plan import build_music_plan_prompt, build_music_plan_prompt_from_dict
+from prompts.music_plan import (
+    build_music_plan_prompt,
+    build_music_plan_prompt_from_dict,
+)
 from schemas.api import UserPreferences
 from schemas.choreography import ChoreographySchema
 
@@ -65,15 +68,21 @@ class TestMusicPlanPrompt:
         assert len(prompt) > 100
 
     def test_prompt_contains_style(self) -> None:
-        prompt = build_music_plan_prompt(_make_choreography(), _make_prefs(style="Amapiano"))
+        prompt = build_music_plan_prompt(
+            _make_choreography(), _make_prefs(style="Amapiano")
+        )
         assert "Amapiano" in prompt
 
     def test_prompt_contains_mood(self) -> None:
-        prompt = build_music_plan_prompt(_make_choreography(), _make_prefs(mood="Melancholic"))
+        prompt = build_music_plan_prompt(
+            _make_choreography(), _make_prefs(mood="Melancholic")
+        )
         assert "Melancholic" in prompt
 
     def test_prompt_contains_energy(self) -> None:
-        prompt = build_music_plan_prompt(_make_choreography(), _make_prefs(energy="soft"))
+        prompt = build_music_plan_prompt(
+            _make_choreography(), _make_prefs(energy="soft")
+        )
         assert "soft" in prompt.lower()
 
     def test_prompt_contains_custom_instruction(self) -> None:
@@ -84,7 +93,9 @@ class TestMusicPlanPrompt:
         assert "dramatic" in prompt.lower()
 
     def test_song_output_mentioned(self) -> None:
-        prompt = build_music_plan_prompt(_make_choreography(), _make_prefs(output_type="song"))
+        prompt = build_music_plan_prompt(
+            _make_choreography(), _make_prefs(output_type="song")
+        )
         assert "vocal" in prompt.lower() or "song" in prompt.lower()
 
     def test_instrumental_output_mentioned(self) -> None:

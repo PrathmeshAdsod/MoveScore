@@ -28,7 +28,6 @@ RUN adduser --disabled-password --gecos "" appuser
 # Copy standalone build output
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
 
 RUN chown -R appuser:appuser /app
 USER appuser

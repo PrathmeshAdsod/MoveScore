@@ -35,7 +35,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mood", default="Euphoric", help="Music mood")
     p.add_argument("--energy", default="high", help="Energy level")
     p.add_argument("--feel", default="Groovy", help="Movement feel")
-    p.add_argument("--output", default=None, help="Output MP4 path (default: next to input)")
+    p.add_argument(
+        "--output", default=None, help="Output MP4 path (default: next to input)"
+    )
     return p.parse_args()
 
 
@@ -76,7 +78,9 @@ def main() -> None:
     print(f"\n{'='*60}")
     print("MoveScore — End-to-End Pipeline Proof")
     print(f"{'='*60}")
-    print(f"Video:    {video_path.name}  ({video_path.stat().st_size / 1024 / 1024:.1f} MB)")
+    print(
+        f"Video:    {video_path.name}  ({video_path.stat().st_size / 1024 / 1024:.1f} MB)"
+    )
     print(f"Style:    {args.style}")
     print(f"Mood:     {args.mood}")
     print(f"Energy:   {args.energy}")
@@ -127,7 +131,9 @@ def main() -> None:
         sys.exit(1)
 
     # Step 3: Generate music with Lyria
-    print(f"\n[3/4] Generating music with Lyria ({choreography.duration_seconds:.0f}s)...")
+    print(
+        f"\n[3/4] Generating music with Lyria ({choreography.duration_seconds:.0f}s)..."
+    )
     tmp_audio = Path(tempfile.mktemp(suffix=".mp3"))
     try:
         generate_music(music_prompt, choreography.duration_seconds, tmp_audio)

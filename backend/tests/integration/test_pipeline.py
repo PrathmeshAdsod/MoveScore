@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -68,6 +69,92 @@ def mock_music_prompt():
 
 
 class TestAgentWorkflow:
+    def test_remote_runtime_lookup_uses_keyword_name(
+        self, mock_choreography_dict
+    ) -> None:
+        from agent.workflow import ChoreographyMusicAgent
+        from schemas.api import UserPreferences
+
+        payload = {
+            "status": "ok",
+            "choreography_json": mock_choreography_dict,
+            "music_prompt": "15-second instrumental",
+            "audio_gcs_uri": "gs://bucket/audio/test.mp3",
+        }
+
+        class FakeRemoteAgent:
+            async def async_stream_query(self, **_kwargs):
+                yield {"content": {"parts": [{"text": json.dumps(payload)}]}}
+
+        class FakeAgentEngines:
+            def get(self, *, name):
+                assert name == "projects/test/locations/test/reasoningEngines/test"
+                return FakeRemoteAgent()
+
+        fake_vertexai = SimpleNamespace(
+            Client=lambda **_kwargs: SimpleNamespace(agent_engines=FakeAgentEngines())
+        )
+        with (
+            patch.dict(sys.modules, {"vertexai": fake_vertexai}),
+            patch(
+                "agent.workflow.settings.agent_engine_resource_name",
+                "projects/test/locations/test/reasoningEngines/test",
+            ),
+        ):
+            choreography, prompt, audio_uri = (
+                ChoreographyMusicAgent()._run_remote_agent_runtime(
+                    video_gcs_uri="gs://bucket/uploads/test.mp4",
+                    user_preferences=UserPreferences(style="Afrobeat"),
+                    cached_choreography=None,
+                    cached_music_prompt=None,
+                )
+            )
+
+        assert choreography.duration_seconds == 15.0
+        assert prompt == "15-second instrumental"
+        assert audio_uri == "gs://bucket/audio/test.mp3"
+
+    def test_remote_event_parser_extracts_content_parts(
+        self, mock_choreography_dict
+    ) -> None:
+        from agent.workflow import _event_text_parts, _parse_remote_agent_payload
+
+        payload = {
+            "status": "ok",
+            "choreography_json": mock_choreography_dict,
+            "music_prompt": "15-second instrumental",
+            "audio_gcs_uri": "gs://bucket/audio/test.mp3",
+        }
+        tool_event = {
+            "content": {
+                "parts": [{"function_call": {"name": "analyze_choreography_tool"}}]
+            }
+        }
+        final_event = {
+            "content": {"role": "model", "parts": [{"text": json.dumps(payload)}]}
+        }
+
+        chunks = _event_text_parts(tool_event) + _event_text_parts(final_event)
+        assert _parse_remote_agent_payload(chunks) == payload
+
+    def test_remote_event_parser_accepts_fragmented_json(
+        self, mock_choreography_dict
+    ) -> None:
+        from agent.workflow import _parse_remote_agent_payload
+
+        serialized = json.dumps(
+            {
+                "status": "ok",
+                "choreography_json": mock_choreography_dict,
+                "music_prompt": "prompt",
+                "audio_gcs_uri": "gs://bucket/audio/test.mp3",
+            }
+        )
+        midpoint = len(serialized) // 2
+        assert _parse_remote_agent_payload(
+            [serialized[:midpoint], serialized[midpoint:]]
+        )["audio_gcs_uri"].endswith("test.mp3")
+
     def test_full_run_calls_all_tools_and_combine(
         self, mock_choreography_dict, mock_music_prompt
     ) -> None:
@@ -81,12 +168,16 @@ class TestAgentWorkflow:
                 "agent.workflow.analyze_choreography_tool",
                 return_value=json.dumps(mock_choreography_dict),
             ) as mock_an,
-            patch("agent.workflow.plan_music_tool", return_value=mock_music_prompt) as mock_pl,
             patch(
-                "agent.workflow.generate_music_tool", return_value="gs://bucket/audio/test.mp3"
+                "agent.workflow.plan_music_tool", return_value=mock_music_prompt
+            ) as mock_pl,
+            patch(
+                "agent.workflow.generate_music_tool",
+                return_value="gs://bucket/audio/test.mp3",
             ) as mock_gen,
             patch(
-                "agent.workflow.combine_from_gcs", return_value="https://signed.url/final.mp4"
+                "agent.workflow.combine_from_gcs",
+                return_value="https://signed.url/final.mp4",
             ) as mock_comb,
         ):
             agent = ChoreographyMusicAgent()
@@ -115,11 +206,17 @@ class TestAgentWorkflow:
 
         with (
             patch("agent.workflow.analyze_choreography_tool") as mock_an,
-            patch("agent.workflow.plan_music_tool", return_value=mock_music_prompt) as mock_pl,
             patch(
-                "agent.workflow.generate_music_tool", return_value="gs://bucket/audio/new.mp3"
+                "agent.workflow.plan_music_tool", return_value=mock_music_prompt
+            ) as mock_pl,
+            patch(
+                "agent.workflow.generate_music_tool",
+                return_value="gs://bucket/audio/new.mp3",
             ) as mock_gen,
-            patch("agent.workflow.combine_from_gcs", return_value="https://signed.url/final2.mp4"),
+            patch(
+                "agent.workflow.combine_from_gcs",
+                return_value="https://signed.url/final2.mp4",
+            ),
         ):
             agent = ChoreographyMusicAgent()
             result = agent.run(
@@ -147,9 +244,13 @@ class TestAgentWorkflow:
             patch("agent.workflow.analyze_choreography_tool") as mock_an,
             patch("agent.workflow.plan_music_tool") as mock_pl,
             patch(
-                "agent.workflow.generate_music_tool", return_value="gs://bucket/audio/regen.mp3"
+                "agent.workflow.generate_music_tool",
+                return_value="gs://bucket/audio/regen.mp3",
             ) as mock_gen,
-            patch("agent.workflow.combine_from_gcs", return_value="https://signed.url/regen.mp4"),
+            patch(
+                "agent.workflow.combine_from_gcs",
+                return_value="https://signed.url/regen.mp4",
+            ),
         ):
             agent = ChoreographyMusicAgent()
             result = agent.run(
@@ -252,7 +353,10 @@ class TestAgentWorkflow:
                 return_value=json.dumps(mock_choreography_dict),
             ),
             patch("agent.workflow.plan_music_tool", return_value=mock_music_prompt),
-            patch("agent.workflow.generate_music_tool", return_value="gs://bucket/audio/test.mp3"),
+            patch(
+                "agent.workflow.generate_music_tool",
+                return_value="gs://bucket/audio/test.mp3",
+            ),
             patch(
                 "agent.workflow.combine_from_gcs",
                 side_effect=MediaCombineError("FFmpeg transcode error"),
@@ -320,7 +424,10 @@ class TestApiRoutes:
     def test_upload_success_within_60s(self, client) -> None:
         with (
             patch("services.ffmpeg_service.validate_video_duration", return_value=15.0),
-            patch("services.storage.upload_bytes", return_value="gs://bucket/uploads/test.mp4"),
+            patch(
+                "services.storage.upload_bytes",
+                return_value="gs://bucket/uploads/test.mp4",
+            ),
             patch(
                 "services.storage.generate_signed_url",
                 return_value="https://signed.url/preview.mp4",
@@ -339,7 +446,9 @@ class TestApiRoutes:
         resp = client.post("/run-agent", json={})
         assert resp.status_code == 422
 
-    def test_run_agent_with_mocks(self, client, mock_choreography_dict, mock_music_prompt) -> None:
+    def test_run_agent_with_mocks(
+        self, client, mock_choreography_dict, mock_music_prompt
+    ) -> None:
         from schemas.choreography import ChoreographySchema
 
         choreography = ChoreographySchema.model_validate(mock_choreography_dict)

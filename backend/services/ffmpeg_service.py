@@ -65,7 +65,9 @@ def get_video_duration(video_path: Path) -> float:
         )
         if result.returncode != 0:
             logger.error("ffprobe error: %s", result.stderr)
-            raise MediaCombineError(f"Could not probe video duration: {result.stderr.strip()}")
+            raise MediaCombineError(
+                f"Could not probe video duration: {result.stderr.strip()}"
+            )
         output = result.stdout.strip()
         if not output:
             raise MediaCombineError("ffprobe returned empty duration output.")
@@ -123,7 +125,9 @@ def combine_video_and_audio(
 
         # Upload final video to GCS
         final_blob_name = gcs.make_blob_name("final", "mp4")
-        final_gcs_uri = gcs.upload_file(output_path, final_blob_name, content_type="video/mp4")
+        final_gcs_uri = gcs.upload_file(
+            output_path, final_blob_name, content_type="video/mp4"
+        )
         logger.info("Final video uploaded to %s", final_gcs_uri)
 
         # Generate signed URL
@@ -197,7 +201,8 @@ def _run_ffmpeg(
         if result.returncode != 0:
             logger.error("FFmpeg stderr: %s", result.stderr)
             raise MediaCombineError(
-                f"FFmpeg exited with code {result.returncode}. " f"Error: {result.stderr[-500:]}"
+                f"FFmpeg exited with code {result.returncode}. "
+                f"Error: {result.stderr[-500:]}"
             )
 
         logger.info("FFmpeg combine complete: %s", output_path)

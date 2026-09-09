@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     # Gemini
     gemini_api_key: str = ""
+    gemini_secret_resource: str = ""
+    gemini_secret_id: str = ""
+    gemini_secret_version: str = "1"
     gemini_model: str = "gemini-3.8-flash"
 
     # Lyria

@@ -15,6 +15,7 @@ import logging
 import uuid
 from pathlib import Path
 
+import google.auth
 from google.cloud import storage
 
 from config import settings
@@ -111,14 +112,20 @@ def generate_signed_url(gcs_uri: str, ttl_hours: int | None = None) -> str:
                 method="GET",
             )
 
-        # ADC without private key (Cloud Run attached service account):
+        # ADC without private key (Cloud Run attached service account). The
+        # storage client's token can be storage-scoped, which is insufficient
+        # for IAM Credentials signBlob, so obtain a cloud-platform token.
         from google.auth.transport.requests import Request
 
-        if not credentials.valid:
-            credentials.refresh(Request())
+        signing_credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        if not signing_credentials.valid:
+            signing_credentials.refresh(Request())
 
         sa_email = (
-            getattr(credentials, "service_account_email", None) or settings.service_account_email
+            getattr(signing_credentials, "service_account_email", None)
+            or settings.service_account_email
         )
 
         if not sa_email:
@@ -141,7 +148,7 @@ def generate_signed_url(gcs_uri: str, ttl_hours: int | None = None) -> str:
             expiration=datetime.timedelta(hours=ttl),
             method="GET",
             service_account_email=sa_email,
-            access_token=credentials.token,
+            access_token=signing_credentials.token,
         )
     except Exception as exc:
         raise StorageError(f"Failed to generate signed URL: {exc}") from exc

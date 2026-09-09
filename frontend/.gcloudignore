@@ -1,0 +1,8 @@
+.gcloudignore
+.env
+.env.*
+node_modules
+.next
+out
+*.tsbuildinfo
+npm-debug.log*

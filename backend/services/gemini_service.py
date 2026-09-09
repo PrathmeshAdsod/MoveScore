@@ -23,6 +23,7 @@ from prompts.choreography_analysis import CHOREOGRAPHY_ANALYSIS_PROMPT
 from prompts.music_plan import build_music_plan_prompt
 from schemas.api import UserPreferences
 from schemas.choreography import ChoreographySchema
+from services.credentials import get_gemini_api_key
 from utils.errors import ChoreographyAnalysisError, MusicPlanError
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 def _get_client() -> genai.Client:
     """Return a configured google-genai client using the API key."""
-    return genai.Client(api_key=settings.gemini_api_key)
+    return genai.Client(vertexai=False, api_key=get_gemini_api_key())
 
 
 def upload_video_to_files_api(
@@ -66,7 +67,9 @@ def upload_video_to_files_api(
     return response
 
 
-def _wait_for_file_active(client: genai.Client, file_name: str, max_wait_secs: int = 60) -> None:
+def _wait_for_file_active(
+    client: genai.Client, file_name: str, max_wait_secs: int = 60
+) -> None:
     """Poll until the uploaded file transitions to ACTIVE state."""
     deadline = time.time() + max_wait_secs
     while time.time() < deadline:
@@ -74,7 +77,9 @@ def _wait_for_file_active(client: genai.Client, file_name: str, max_wait_secs: i
         if file_info.state == types.FileState.ACTIVE:
             return
         if file_info.state == types.FileState.FAILED:
-            raise ChoreographyAnalysisError(f"Gemini Files API processing failed for {file_name}")
+            raise ChoreographyAnalysisError(
+                f"Gemini Files API processing failed for {file_name}"
+            )
         logger.debug("File state: %s — waiting...", file_info.state)
         time.sleep(2)
     raise ChoreographyAnalysisError(
@@ -138,7 +143,9 @@ def analyze_choreography(
                 )
 
                 raw_text = response.text
-                logger.debug("Gemini raw response (first 500 chars): %s", raw_text[:500])
+                logger.debug(
+                    "Gemini raw response (first 500 chars): %s", raw_text[:500]
+                )
 
                 # Parse and validate
                 choreography = ChoreographySchema.model_validate_json(raw_text)
@@ -156,7 +163,9 @@ def analyze_choreography(
                 if attempt < max_retries:
                     time.sleep(1)
 
-        raise ChoreographyAnalysisError(f"Failed after {max_retries} attempts: {last_error}")
+        raise ChoreographyAnalysisError(
+            f"Failed after {max_retries} attempts: {last_error}"
+        )
 
     finally:
         # Always clean up Files API resource

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from agent.tools.analyze_choreography import analyze_choreography_tool
@@ -37,6 +38,66 @@ from utils.errors import (
 )
 
 logger = logging.getLogger(__name__)
+
+_REMOTE_OUTPUT_KEYS = {"choreography_json", "music_prompt", "audio_gcs_uri"}
+
+
+def _event_text_parts(event: object) -> list[str]:
+    """Extract only model text blocks from an Agent Runtime stream event."""
+    if isinstance(event, str):
+        return [event]
+
+    if not isinstance(event, Mapping) and hasattr(event, "model_dump"):
+        event = event.model_dump()  # type: ignore[union-attr]
+
+    if isinstance(event, Mapping):
+        direct_text = event.get("text")
+        content = event.get("content")
+    else:
+        direct_text = getattr(event, "text", None)
+        content = getattr(event, "content", None)
+
+    text_parts = [direct_text] if isinstance(direct_text, str) else []
+    if content is None:
+        return text_parts
+
+    if not isinstance(content, Mapping) and hasattr(content, "model_dump"):
+        content = content.model_dump()
+
+    parts = (
+        content.get("parts", [])
+        if isinstance(content, Mapping)
+        else getattr(content, "parts", [])
+    )
+    for part in parts or []:
+        if not isinstance(part, Mapping) and hasattr(part, "model_dump"):
+            part = part.model_dump()
+        text = (
+            part.get("text")
+            if isinstance(part, Mapping)
+            else getattr(part, "text", None)
+        )
+        if isinstance(text, str):
+            text_parts.append(text)
+    return text_parts
+
+
+def _parse_remote_agent_payload(text_chunks: list[str]) -> dict:
+    """Return the final structured payload without stringifying event dictionaries."""
+    response_text = "".join(text_chunks).strip()
+    decoder = json.JSONDecoder()
+
+    for start in (index for index, char in enumerate(response_text) if char == "{"):
+        try:
+            payload, _ = decoder.raw_decode(response_text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and _REMOTE_OUTPUT_KEYS.issubset(payload):
+            return payload
+
+    raise ValueError(
+        "No complete MoveScore JSON payload was found in the Agent Runtime events"
+    )
 
 
 @dataclass
@@ -112,7 +173,9 @@ class ChoreographyMusicAgent:
             raise
         except Exception as exc:
             logger.error("FFmpeg combine failed: %s", exc, exc_info=True)
-            raise MediaCombineError(f"Failed to combine video and audio: {exc}") from exc
+            raise MediaCombineError(
+                f"Failed to combine video and audio: {exc}"
+            ) from exc
 
         return AgentResult(
             choreography=choreography,
@@ -137,7 +200,9 @@ class ChoreographyMusicAgent:
             try:
                 choreography = ChoreographySchema.model_validate(cached_choreography)
             except Exception as exc:
-                raise ChoreographyAnalysisError(f"Invalid cached choreography data: {exc}") from exc
+                raise ChoreographyAnalysisError(
+                    f"Invalid cached choreography data: {exc}"
+                ) from exc
         else:
             logger.info("Step 1: Analyzing choreography with Gemini 3.8 Flash...")
             try:
@@ -150,7 +215,9 @@ class ChoreographyMusicAgent:
                 raise
             except Exception as exc:
                 logger.error("Choreography analysis error: %s", exc, exc_info=True)
-                raise ChoreographyAnalysisError(f"Video analysis failed: {exc}") from exc
+                raise ChoreographyAnalysisError(
+                    f"Video analysis failed: {exc}"
+                ) from exc
 
         # ── Step 2: Music Planning ──
         if cached_music_prompt is not None and cached_choreography is not None:
@@ -203,12 +270,16 @@ class ChoreographyMusicAgent:
 
         import vertexai
 
-        logger.info("Connecting to Agent Runtime: %s", settings.agent_engine_resource_name)
+        logger.info(
+            "Connecting to Agent Runtime: %s", settings.agent_engine_resource_name
+        )
         client = vertexai.Client(
             project=settings.google_cloud_project_id,
             location=settings.gcp_region,
         )
-        remote_agent = client.agent_engines.get(settings.agent_engine_resource_name)
+        remote_agent = client.agent_engines.get(
+            name=settings.agent_engine_resource_name
+        )
 
         input_message = {
             "video_gcs_uri": video_gcs_uri,
@@ -217,30 +288,28 @@ class ChoreographyMusicAgent:
             "cached_music_prompt": cached_music_prompt,
         }
 
-        async def _query() -> str:
-            response_text = ""
+        async def _query() -> list[str]:
+            response_chunks: list[str] = []
             async for event in remote_agent.async_stream_query(
                 user_id="movescore_user",
                 message=json.dumps(input_message),
             ):
-                if hasattr(event, "text"):
-                    response_text += event.text
-                elif isinstance(event, str):
-                    response_text += event
-                elif isinstance(event, dict) and "content" in event:
-                    response_text += str(event["content"])
-            return response_text
+                response_chunks.extend(_event_text_parts(event))
+            return response_chunks
 
-        raw_response = asyncio.run(_query())
-        logger.info("Received Agent Runtime response (%d chars)", len(raw_response))
+        response_chunks = asyncio.run(_query())
+        logger.info(
+            "Received Agent Runtime response (%d text chunks)", len(response_chunks)
+        )
 
         try:
-            # Parse returned JSON
-            data = json.loads(raw_response)
+            data = _parse_remote_agent_payload(response_chunks)
             choreography = ChoreographySchema.model_validate(data["choreography_json"])
             music_prompt = data["music_prompt"]
             audio_gcs_uri = data["audio_gcs_uri"]
             return choreography, music_prompt, audio_gcs_uri
         except Exception as exc:
-            logger.error("Failed to parse Agent Runtime output: %s (raw: %s)", exc, raw_response)
-            raise AgenticCinemaError(f"Agent Runtime returned invalid output: {exc}") from exc
+            logger.error("Failed to parse Agent Runtime output: %s", exc, exc_info=True)
+            raise AgenticCinemaError(
+                "Agent Runtime completed but returned an invalid structured response"
+            ) from exc

@@ -17,8 +17,11 @@ Pipeline architecture:
 from __future__ import annotations
 
 import logging
+from functools import cached_property
 
+from google import genai
 from google.adk import Agent
+from google.adk.models import Gemini
 from google.adk.tools import FunctionTool
 from vertexai import agent_engines
 
@@ -26,8 +29,17 @@ from agent.tools.analyze_choreography import analyze_choreography_tool
 from agent.tools.generate_music import generate_music_tool
 from agent.tools.plan_music import plan_music_tool
 from config import settings
+from services.credentials import get_gemini_api_key
 
 logger = logging.getLogger(__name__)
+
+
+class SecretManagerGemini(Gemini):
+    """ADK Gemini client backed by the restricted Developer API key in Secret Manager."""
+
+    @cached_property
+    def api_client(self) -> genai.Client:
+        return genai.Client(vertexai=False, api_key=get_gemini_api_key())
 
 SYSTEM_INSTRUCTION = """You are the MoveScore Agent orchestrator on Gemini Enterprise Agent Platform.
 Your mission is to orchestrate a deterministic pipeline that turns a creator's dance video into an original soundtrack.
@@ -63,7 +75,7 @@ PIPELINE RULES:
 movescore_agent = Agent(
     name="movescore_agent",
     description="Deterministic dance-to-music pipeline agent for MoveScore",
-    model=settings.gemini_model,
+    model=SecretManagerGemini(model=settings.gemini_model),
     instruction=SYSTEM_INSTRUCTION,
     tools=[
         FunctionTool(analyze_choreography_tool),

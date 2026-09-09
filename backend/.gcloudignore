@@ -1,0 +1,16 @@
+.gcloudignore
+.env
+.env.*
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+tests
+scripts
+*.mp3
+*.mp4
+*.mov
+*.webm

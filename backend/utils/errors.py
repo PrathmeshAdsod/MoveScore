@@ -26,8 +26,7 @@ class VideoTooLargeError(AgenticCinemaError):
 class InvalidVideoFormatError(AgenticCinemaError):
     def __init__(self, content_type: str) -> None:
         super().__init__(
-            f"Unsupported video format: {content_type}. "
-            "Please upload an MP4, MOV, or WebM file.",
+            f"Unsupported video format: {content_type}. " "Please upload an MP4 file.",
             status_code=415,
         )
 

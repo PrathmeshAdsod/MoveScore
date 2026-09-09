@@ -12,7 +12,7 @@ interface VideoUploaderProps {
   disabled?: boolean;
 }
 
-const ACCEPTED = ["video/mp4", "video/quicktime", "video/webm"];
+const ACCEPTED = ["video/mp4"];
 const MAX_MB = 100;
 
 export default function VideoUploader({
@@ -24,8 +24,8 @@ export default function VideoUploader({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const validate = (file: File): string | null => {
-    if (!ACCEPTED.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
-      return "Please upload an MP4, MOV, or WebM video file.";
+    if (!ACCEPTED.includes(file.type) || !file.name.match(/\.mp4$/i)) {
+      return "Please upload an MP4 video file.";
     }
     if (file.size > MAX_MB * 1024 * 1024) {
       return `File is too large. Maximum size is ${MAX_MB} MB.`;
@@ -108,14 +108,14 @@ export default function VideoUploader({
           {dragOver ? "Drop to upload" : "Drop your choreography here"}
         </div>
         <div className="drop-zone-secondary">
-          or click to browse · MP4, MOV, WebM · max {MAX_MB} MB
+          or click to browse · MP4 · max {MAX_MB} MB
         </div>
       </div>
 
       <input
         ref={inputRef}
         type="file"
-        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+        accept="video/mp4,.mp4"
         onChange={onInputChange}
         style={{ display: "none" }}
         disabled={disabled}

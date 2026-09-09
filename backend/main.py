@@ -55,7 +55,9 @@ app.add_middleware(
 
 # ── Global error handler ──────────────────────────────────────────────────────
 @app.exception_handler(AgenticCinemaError)
-async def agentic_cinema_error_handler(request: Request, exc: AgenticCinemaError) -> JSONResponse:
+async def agentic_cinema_error_handler(
+    request: Request, exc: AgenticCinemaError
+) -> JSONResponse:
     logger.error("AgenticCinemaError: %s", exc.message)
     return JSONResponse(
         status_code=exc.status_code,
