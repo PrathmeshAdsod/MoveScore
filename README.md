@@ -1,259 +1,345 @@
-# Agentic Cinema
+# MoveScore
 
 **Dance first. Music second.**
 
 Upload your choreography. Get original music composed around your movement.
 
+**Live app:** https://movescore-frontend-tjzml33mta-uc.a.run.app
+
+**Backend health:** https://movescore-backend-tjzml33mta-uc.a.run.app/health
+
 ---
 
 ## The Problem
 
-Short-form creators — on TikTok, Instagram Reels, YouTube Shorts — always start with a song and choreograph around it. The music drives the movement.
+Short-form creators usually start with music and build choreography around it. That works when the song comes first, but it becomes limiting when the movement comes first.
 
-This forces creativity backwards. Your movement ideas are limited by what songs are available. You adapt your dance to the music, not the other way around.
+A rehearsal, freestyle, original routine, or brand movement may already have its own pacing and energy. Existing music generators start from text. They do not understand the choreography before composing.
 
-## The Solution
+## The Idea
 
-Agentic Cinema reverses this workflow.
+MoveScore reverses the workflow.
 
-Upload a dance video with no music. Gemini analyzes the complete movement — timing, energy, accents, freezes, buildup, climax, final pose. That movement structure becomes the musical blueprint. Lyria composes an original soundtrack around your choreography.
+Instead of:
 
-The song follows the dance. Not the other way around.
+```
+Music -> Choreography
+```
+
+MoveScore does:
+
+```
+Choreography -> Movement understanding -> Musical direction -> Original music
+```
+
+A creator uploads a dance video. Gemini analyzes the choreography, including key movement moments, movement tempo, intensity, and the overall energy arc. A second reasoning step translates that analysis into timestamp-aware musical direction. Lyria 3.5 then composes original music around the movement structure.
+
+The result is not frame-perfect beat synchronization. The timestamps are musical directions that help shape the composition around the choreography.
+
+**MoveScore makes choreography the prompt.**
 
 ---
 
 ## User Flow
 
 ```
-1. Land on the page — no sign up
-2. Click "Start Creating"
-3. Upload your dance video (MP4 only, up to 100MB and 60 seconds)
-4. Select: Style, Mood, Energy, Movement Feel (optional)
-5. Click "Generate Music"
-6. See movement analysis: "6 moments detected · Intro → Hit → Spin → Freeze → Drop → Final Pose"
-7. Wait ~45–90 seconds for generation
-8. Preview the final video with its original soundtrack
-9. Download and post
+1. Open MoveScore
+2. Upload an MP4 choreography video, up to 100 MB and 60 seconds
+3. Choose:
+   - Instrumental or Song / Vocals
+   - Style
+   - Mood
+   - Energy
+   - Movement Feel
+   - Optional custom direction
+4. Click "Generate Music"
+5. Gemini analyzes the choreography
+6. Gemini turns the movement analysis into timestamp-aware music direction
+7. Lyria 3.5 generates original music
+8. MoveScore combines the generated audio with the original video
+9. Preview the final result
+10. Download the MP4
 ```
 
 ---
 
-## Architecture
+## Production Architecture
 
 ```mermaid
 flowchart TD
-    A[Browser] -->|Upload video| B[POST /upload]
-    B -->|Store| C[GCS Temp Bucket\n24h auto-delete]
-    A -->|Run agent| D[POST /run-agent]
-    D --> E[Cloud Run Backend\nFastAPI + ADK]
+    A[Browser] -->|Upload MP4| B[Next.js Frontend\nCloud Run]
+    B -->|POST /upload| C[FastAPI Backend\nCloud Run]
+    C -->|Store original video| D[GCS Temp Bucket\n1 day lifecycle]
 
-    E --> F[Tool 1: analyze_choreography\nGemini 3.8 Flash\nFiles API + response_schema]
-    F -->|ChoreographySchema JSON| G[Tool 2: plan_music\nGemini 3.8 Flash text\nchoreography + user prefs]
-    G -->|Timestamp-aware\nmusic prompt| H[Tool 3: generate_music\nLyria 3.5 via google-genai SDK]
-    H -->|MP3 audio| I[GCS Temp]
-    I --> J[Tool 4: combine_media\nFFmpeg]
-    C --> J
-    J -->|Final MP4| K[GCS Temp]
-    K -->|Signed URL 1h TTL| A
+    B -->|POST /run-agent| C
+    C -->|Remote invocation| E[Gemini Enterprise Agent Platform\nAgent Runtime\nGoogle ADK Agent]
 
-    style E fill:#f7f8fa,stroke:#e5e7eb
+    E --> F[Tool 1: analyze_choreography\nGemini 3.8 Flash\nVideo + structured output]
+    F -->|ChoreographySchema| G[Tool 2: plan_music\nGemini 3.8 Flash\nMovement + creator preferences]
+    G -->|Timestamp-aware music direction| H[Tool 3: generate_music\nLyria 3.5]
+    H -->|Generated MP3| D
+
+    E -->|Structured agent result| C
+    C --> I[FFmpeg\nH.264 + AAC]
+    D --> I
+    I -->|Final MP4| D
+    D -->|Signed URL| B
+
+    style E fill:#f7f8fa,stroke:#c7d2fe
     style F fill:#e8f4fd,stroke:#bfdbfe
     style G fill:#e8f4fd,stroke:#bfdbfe
     style H fill:#f0fdf4,stroke:#bbf7d0
-    style J fill:#fef9c3,stroke:#fde047
+    style I fill:#fef9c3,stroke:#fde047
 ```
 
-### Services
+The production backend invokes the deployed Agent Runtime resource directly. There is no production local fallback in the successful end-to-end path.
 
-| Service | Role |
-|---------|------|
-| **Next.js on Cloud Run** | Frontend — landing page + creation interface |
-| **FastAPI on Cloud Run** | Backend — ADK agent, Gemini, Lyria, FFmpeg |
-| **Google Cloud Storage** | Temporary file storage (24h lifecycle) |
-| **Gemini 3.8 Flash** | Video analysis + music plan reasoning |
-| **Lyria 3.5** | AI music generation (via google-genai SDK) |
-| **Google ADK** | Workflow agent orchestration |
-| **FFmpeg** | Audio/video combine |
+### Production Runtime
+
+- **GCP project:** `gleamail`
+- **Region:** `us-central1`
+- **Agent Runtime:** `projects/1093246532955/locations/us-central1/reasoningEngines/2313598414480211968`
+- **Backend Cloud Run revision:** `movescore-backend-00004-7ht`
+- **Frontend Cloud Run revision:** `movescore-frontend-00001-kwg`
+- **Runtime service account:** `movescore-backend-sa@gleamail.iam.gserviceaccount.com`
 
 ---
 
-## AI Usage
+## Google Cloud Products Used
 
-### Gemini — Choreography Analysis (Tool 1)
-
-Gemini receives the dance video via the **Files API** and analyzes the complete movement from start to finish. It returns a structured `ChoreographySchema` JSON using `response_schema` for strict output enforcement.
-
-The schema captures:
-- Timestamped movement segments with intensity (1–10)
-- Key moments: accents, spins, freezes, jumps, climax, final pose
-- Overall energy arc, movement tempo BPM, movement patterns
-- Analysis confidence + notes (including fast-movement limitations)
-
-**Known limitation**: Gemini samples video at approximately 1 FPS. Sub-second fast movements may be under-captured. The prompt and schema explicitly instruct the model to note uncertainty rather than fabricate detail.
-
-### Gemini — Music Plan Reasoning (Tool 2)
-
-A second Gemini call (text-only) converts the `ChoreographySchema` + user preferences into a **timestamp-aware natural language music prompt** for Lyria.
-
-The reasoning step maps movement events to musical language:
-```
-accent       → strong drum hit / musical accent
-freeze       → brief pause or sustained note  
-buildup      → rising energy and instrumentation
-climax_start → drop / high-energy section
-final_pose   → strong conclusive ending
-```
-
-Example output:
-```
-18-second Afrobeat instrumental. Euphoric mood. Groovy feel. ~110 BPM.
-[0:00-0:03] Restrained intro, light percussion and bass.
-Around 0:03 strong drum accent matching the movement hit.
-[0:03-0:07] Rising energy with expanding rhythm.
-Around 0:07 swirling melodic transition for the spin.
-Around 0:10 brief beat reduction — a breath for the freeze.
-[0:11-0:18] Full high-energy drop with complete arrangement.
-Around 0:18 strong conclusive hit for the final pose.
-```
-
-### Lyria — Music Generation (Tool 3)
-
-Lyria receives the music plan and generates the complete original audio track. Accessed via the `google-genai` Python SDK using the Gemini API key — no separate MusicFX endpoint required.
-
-**Honest disclaimer**: Timestamp instructions are **musical directions**, not sample-accurate beat sync guarantees. The music is composed around the choreography's energy structure — it reflects the movement arc, not frame-perfect synchronization.
-
-### ADK Workflow Agent
-
-The `ChoreographyMusicAgent` is a single deterministic **Google ADK workflow agent** that orchestrates all four tools in sequence. This satisfies the Agentic Cinema hackathon requirement for a functional AI agent powered by Google Cloud Agent Builder.
-
-**Generate Again optimization**:
-- Preferences unchanged: skip Tools 1+2, regenerate only music (Tools 3+4)
-- Preferences changed: skip Tool 1, replan music (Tools 2+3+4)
-- New video uploaded: full pipeline
+| Product | How MoveScore uses it |
+|---|---|
+| **Gemini Enterprise Agent Platform / Agent Runtime** | Hosts the production Google ADK agent that orchestrates the AI workflow |
+| **Google ADK** | Defines the MoveScore agent and its choreography analysis, music planning, and music generation tools |
+| **Gemini 3.8 Flash** | Multimodal choreography analysis and the movement-to-music planning step |
+| **Lyria 3.5** | Generates the original soundtrack from the choreography-derived music direction |
+| **Cloud Run** | Hosts the Next.js frontend and FastAPI backend |
+| **Cloud Storage** | Stores uploaded video, generated audio, and final MP4 temporarily with a one-day lifecycle |
+| **Secret Manager** | Stores the restricted Gemini API key used by the deployed runtime |
+| **Artifact Registry** | Stores the production container images |
+| **Cloud Build** | Builds deployment artifacts for Cloud Run |
+| **IAM / service accounts** | Provides least-privilege access between runtime, storage, secrets, and Cloud Run |
+| **Cloud Logging** | Used during production deployment and end-to-end troubleshooting |
+| **Cloud Resource Manager** | Enabled for the deployed Agent Runtime session service |
+| **Agent Platform Studio Speech / Gemini 3.1 Flash TTS (Preview)** | Used to generate narration for the hackathon demo video with the Umbriel male voice |
 
 ---
 
-## IBM Bob Contribution
+## How the AI Pipeline Works
 
-This project was built entirely using **IBM Bob** (AI development environment).
+### 1. Gemini Choreography Analysis
 
-| Phase | Bob Mode | What Bob did |
-|-------|----------|-------------|
-| Architecture | Plan Mode | Designed the full system, verified API capabilities, wrote `PLAN.md` |
-| Risk validation | Plan Mode | Identified Lyria uncertainty, Gemini 1 FPS limitation, ADK requirement |
-| Backend | Agent Mode | All Python code: FastAPI, Gemini service, Lyria service, ADK agent, FFmpeg service, GCS service, schemas, prompts, tests |
-| Frontend | Agent Mode | All TypeScript/Next.js code: landing page, create page, all components, API client |
-| Deployment | Agent Mode | Dockerfiles, Cloud Build, deploy scripts, `GCP_SETUP_AND_DEPLOY.md` |
-| Documentation | Agent Mode | This README, all inline docstrings |
+Gemini receives the choreography video and returns a strict structured `ChoreographySchema`.
 
-Bob conversation history is preserved as evidence of development process.
+The analysis captures:
 
----
+- Timestamped movement segments
+- Intensity from 1 to 10
+- Key moments such as accents, spins, freezes, jumps, climax, and final pose
+- Overall energy
+- Estimated movement tempo BPM
+- Movement patterns
+- Analysis confidence
+- Notes when movement is too fast or unclear to describe confidently
 
-## Setup
+The prompt explicitly tells Gemini not to invent movement it cannot see.
 
-See **[GCP_SETUP_AND_DEPLOY.md](GCP_SETUP_AND_DEPLOY.md)** for complete step-by-step deployment instructions.
+### 2. Movement to Music Planning
 
-### Quick local start
+A second Gemini 3.8 Flash call acts like a music director.
 
-```bash
-# Backend
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp ../.env.example .env          # fill in GEMINI_API_KEY and GCS_TEMP_BUCKET
-uvicorn main:app --reload --port 8080
+It receives the structured choreography plus the creator's choices:
 
-# Frontend (new terminal)
-cd frontend
-npm install
-echo "NEXT_PUBLIC_BACKEND_URL=http://localhost:8080" > .env.local
-npm run dev
+- Style
+- Mood
+- Energy
+- Movement feel
+- Instrumental or Song / Vocals
+- Optional custom instruction
+
+The planner translates movement into musical language. Examples from the production prompt:
+
+```
+accent / hit  -> strong drum hit or musical accent
+freeze        -> brief silence, breath, or sustained note
+buildup       -> rising energy and expanding instrumentation
+climax_start  -> drop or high-energy section
+spin          -> swirling melodic or rhythmic transition
+final_pose    -> strong, conclusive ending
 ```
 
-Open http://localhost:3000
+The output is a concise natural-language music direction with approximate timestamps, total duration, overall energy arc, style, mood, instrumentation, and BPM when available.
+
+### 3. Lyria 3.5 Music Generation
+
+Lyria receives the choreography-derived music direction and generates the soundtrack.
+
+MoveScore supports:
+
+- Instrumental
+- Song / Vocals
+
+The music plan includes timestamp-aware directions, but these are intentionally treated as approximate musical guidance rather than sample-accurate synchronization.
+
+### 4. Final Media Processing
+
+The generated MP3 is stored in GCS and returned to the Cloud Run backend.
+
+FFmpeg then combines the generated audio with the creator's original choreography video and produces a browser-compatible MP4:
+
+- H.264
+- `yuv420p`
+- AAC
+- Fast start enabled
+
+The final result is stored temporarily and returned through a signed URL.
 
 ---
 
-## Environment Variables
+## Real Production Validation
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GOOGLE_CLOUD_PROJECT_ID` | Yes | GCP project ID |
-| `GCS_TEMP_BUCKET` | Yes | GCS bucket name for temporary storage |
-| `GEMINI_API_KEY` | Yes | Gemini API key (also used for Lyria) |
-| `GEMINI_MODEL` | Yes | Gemini model ID (verify in AI Studio) |
-| `LYRIA_MODEL` | Yes | Lyria model ID (verify in AI Studio) |
-| `FRONTEND_URL` | Yes (prod) | Deployed frontend URL for CORS |
-| `NEXT_PUBLIC_BACKEND_URL` | Yes | Backend URL for frontend API calls |
+The deployed application was tested end to end with a real 10-second MP4.
 
-Full reference: [`.env.example`](.env.example)
+Verified production path:
+
+```
+Upload
+-> GCS
+-> Gemini Enterprise Agent Runtime
+-> Gemini 3.8 Flash choreography analysis
+-> Gemini 3.8 Flash music planning
+-> Lyria 3.5
+-> generated audio in GCS
+-> Cloud Run FFmpeg
+-> final MP4
+-> browser playback
+-> download
+```
+
+The production proof completed successfully.
+
+- Gemini choreography analysis: success
+- Music planning: success
+- Lyria MP3 generation: success
+- Final MP4 duration: 10.000 seconds
+- Video: H.264, yuv420p, 1280x720
+- Audio: AAC, 44.1 kHz stereo
+- Full FFmpeg decode: passed
+- Chrome UI flow: passed
+- Final production API run: about 103 seconds
 
 ---
 
-## Demo
+## IBM Bob and Google Antigravity
 
-1. Open the application (landing page)
-2. Click "Start Creating →"
-3. Upload a 10–18 second dance video
-4. Select: **Afrobeat** / **Euphoric** / **High** / **Groovy**
-5. Click "Generate Music"
-6. Watch: `Analyzing choreography...` → `Composing music...` → `Preparing your video...`
-7. See movement analysis: detected moments, energy, tempo
-8. Play the final video — same dance, new original soundtrack
-9. Download
+IBM Bob was the main development environment during the first and largest build phase.
+
+I started in **Bob Plan Mode**, where I worked through the product architecture, the choreography-first workflow, API choices, limitations, and the initial Google Cloud deployment plan. I then used **Bob Agent Mode** for the initial implementation across the backend, frontend, prompts, schemas, tests, Docker setup, and deployment scripts.
+
+As the project got close to production, my Bobcoins were almost exhausted. I handed the remaining production-hardening work to **Google Antigravity**. I used it to audit the existing implementation against the current Google SDKs and documentation, fix production blockers, harden Agent Runtime packaging and authentication, troubleshoot runtime and Cloud Run issues, and validate the final end-to-end path.
+
+The final production architecture keeps the original choreography-first design and IBM Bob foundation, while the later hardening made the deployed version reliable enough for a real browser demo.
+
+---
+
+## Demo Input Disclosure
+
+The choreography used in the hackathon demo is synthetic test footage generated with Google Gemini.
+
+Prompt:
+
+> "Create a 10-second dance choreography video. Don't give it a good song; I'm interested in the dance only. Make it nice, smooth, and energetic, like someone is rehearsing."
+
+I intentionally used a simple rehearsal-style choreography clip so the input movement is clear and the demo can focus on what MoveScore adds: the new music.
+
+The demo narration was generated in **Google Cloud Agent Platform Studio** using **Gemini 3.1 Flash TTS (Preview)** with the **Umbriel (Male)** voice.
 
 ---
 
 ## Known Limitations
 
 | Limitation | Detail |
-|-----------|--------|
-| ~1 FPS video sampling | Gemini samples at approximately 1 FPS. Sub-second fast movements may be under-captured. The UI shows a warning when confidence is low. |
-| Musical direction, not beat sync | Lyria timestamp instructions direct the energy arc and structure — they do not guarantee exact beat-to-frame alignment. |
-| Lyria quota | Check your account quota before demo day. Pre-generate demo audio as backup. |
-| Synchronous pipeline | The `/run-agent` request blocks for 45–120 seconds. This is acceptable for the current demo scale. |
-| GCS signed URL expiry | Download links expire after 1 hour. Users should download promptly. |
+|---|---|
+| Fast movement analysis | Very fast sub-second movement can be harder for video understanding to capture precisely |
+| Musical direction, not frame-perfect beat sync | Timestamp instructions shape musical structure and energy, but they are not sample-accurate synchronization guarantees |
+| Lyria duration is approximate | Generated audio can be longer than the choreography, so FFmpeg uses the choreography video as the final duration boundary |
+| Synchronous request | A full production run currently takes around 1 to 2 minutes |
+| MP4-only MVP | The production upload path intentionally accepts MP4 only for reliability |
+| Temporary result URLs | Signed result URLs expire, and GCS objects are automatically removed by the one-day lifecycle |
 
 ---
 
-## Future Scope
+## Development and Deployment Notes
 
-- Real-time status streaming (Server-Sent Events)
-- Multiple music variations from same choreography
-- Section-level style control (different feel per segment)
-- BPM lock to detected movement tempo
-- Waveform display synced to key moments
-- Mobile-optimized upload
+### Local backend
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp ../.env.example .env
+uvicorn main:app --reload --port 8080
+```
+
+### Local frontend
+
+```bash
+cd frontend
+npm install
+echo "NEXT_PUBLIC_BACKEND_URL=http://localhost:8080" > .env.local
+npm run dev
+```
+
+For production details, see [GCP_SETUP_AND_DEPLOY.md](GCP_SETUP_AND_DEPLOY.md).
 
 ---
 
 ## Project Structure
 
 ```
-agentic-cinema/
-├── PLAN.md                     # Architecture plan (IBM Bob Plan Mode)
-├── AGENTS.md                   # IBM Bob project context
-├── GCP_SETUP_AND_DEPLOY.md     # Step-by-step deployment guide
-├── README.md                   # This file
-├── .env.example                # Environment variable template
-├── frontend/                   # Next.js application
-│   ├── app/                    # App Router pages
-│   ├── components/             # UI components
-│   ├── lib/                    # API client + types
+MoveScore/
+├── PLAN.md
+├── AGENTS.md
+├── GCP_SETUP_AND_DEPLOY.md
+├── README.md
+├── devpost_submission.md
+├── .env.example
+├── frontend/
+│   ├── app/
+│   ├── components/
+│   ├── lib/
 │   └── Dockerfile
-└── backend/                    # FastAPI application
-    ├── main.py                 # FastAPI entry point
-    ├── agent/                  # ADK workflow agent
-    ├── services/               # Gemini, Lyria, GCS, FFmpeg
-    ├── schemas/                # Pydantic models
-    ├── prompts/                # Gemini prompt templates
-    ├── routes/                 # API routes
-    ├── scripts/                # Proof/validation scripts
-    ├── tests/                  # Unit + integration tests
-    └── Dockerfile
+├── backend/
+│   ├── main.py
+│   ├── agent/
+│   ├── services/
+│   ├── schemas/
+│   ├── prompts/
+│   ├── routes/
+│   ├── scripts/
+│   ├── tests/
+│   └── Dockerfile
+└── scripts/
+    ├── deploy-agent-runtime.py
+    ├── deploy-backend.sh
+    ├── deploy-frontend.sh
+    └── gcs-lifecycle.json
 ```
 
 ---
 
-*Built for the Agentic Cinema Hackathon · Powered by Gemini, Lyria, Google ADK · Developed with IBM Bob*
+## What's Next
+
+If I continue MoveScore after the hackathon, the first things I would explore are:
+
+- More precise temporal understanding for fast choreography
+- Multiple music variations from one choreography
+- Section-level creative direction
+- Faster asynchronous generation with progress streaming
+- Better mobile creator workflow
+- A/B comparison between different music directions for the same movement
+
+---
+
+*Built for the Agentic Cinema Hackathon. Powered by Gemini Enterprise Agent Platform, Google ADK, Gemini 3.8 Flash, Lyria 3.5, Cloud Run, and Google Cloud.*
