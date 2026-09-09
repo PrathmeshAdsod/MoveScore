@@ -303,7 +303,6 @@ MoveScore/
 ├── AGENTS.md
 ├── GCP_SETUP_AND_DEPLOY.md
 ├── README.md
-├── devpost_submission.md
 ├── .env.example
 ├── frontend/
 │   ├── app/
