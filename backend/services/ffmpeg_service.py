@@ -147,16 +147,17 @@ def combine_from_gcs(
 ) -> str:
     """
     Combine video and audio, both sourced from GCS.
-    Downloads audio to /tmp, then calls combine_video_and_audio.
+    Downloads the Lyria 3.5 MP3 audio to /tmp, combines with video.
 
-    Returns signed URL for the final video.
+    Returns signed URL for the final combined video.
     """
     _check_ffmpeg()
 
     job_id = uuid.uuid4().hex[:8]
-    tmp_dir = Path(tempfile.mkdtemp(prefix=f"ac_dl_{job_id}_"))
+    tmp_dir = Path(tempfile.mkdtemp(prefix=f"ms_combine_{job_id}_"))
 
     try:
+        # Lyria 3.5 generates MP3 via the Interactions API
         audio_path = tmp_dir / "generated_audio.mp3"
         gcs.download_to_file(audio_gcs_uri, audio_path)
         return combine_video_and_audio(video_gcs_uri, audio_path)

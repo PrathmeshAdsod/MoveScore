@@ -1,7 +1,8 @@
 """
-Agentic Cinema — FastAPI Backend
+MoveScore — FastAPI Backend
 
 Entry point for the Cloud Run backend service.
+Dance first. Music second.
 """
 
 from __future__ import annotations
@@ -28,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="Agentic Cinema API",
-    description="Choreography-first music generation for short-form creators.",
+    title="MoveScore API",
+    description="Dance first. Music second. Choreography-first music generation for creators.",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -88,7 +89,7 @@ async def health() -> HealthResponse:
 @app.get("/", tags=["Health"])
 async def root() -> dict:
     return {
-        "service": "Agentic Cinema API",
+        "service": "MoveScore API",
         "version": "1.0.0",
         "docs": "/docs",
     }

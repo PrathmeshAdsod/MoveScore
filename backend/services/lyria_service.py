@@ -1,46 +1,38 @@
 """
-Lyria Music Generation Service
+Lyria 3.5 Music Generation Service
 
-Calls Lyria via the Gemini Live Music API (google-genai v2+ SDK).
-Uses the async music session to stream audio chunks.
+Uses the Gemini Interactions API (google-genai v2+ SDK) for music generation.
+
+Lyria 3.5 is NOT a real-time/live API. It uses the standard Interactions API:
+    client.interactions.create(model="lyria-3.5", input="<prompt>", ...)
+
+Output: audio/mp3 (44.1 kHz stereo), returned as base64-encoded bytes in
+interaction.output_audio.data
 
 Reference: https://ai.google.dev/gemini-api/docs/music-generation
-API class: google.genai.live.AsyncLiveMusic / AsyncMusicSession
+Model: lyria-3.5
 
-Key facts (verified from SDK):
-- Uses client.aio.live.music.connect(model=LYRIA_MODEL) — async websocket session
-- set_weighted_prompts(): send text prompts with weights
-- set_music_generation_config(): set BPM, density, brightness, scale, mode
-- play(): start generation
-- receive(): async iterator yielding LiveMusicServerMessage
-- Audio arrives in AudioChunk.data (raw PCM bytes)
-- music_generation_mode: VOCALIZATION for vocals, QUALITY/DIVERSITY for instrumental
+IMPORTANT: Do NOT confuse with Lyria RealTime (live.music.connect) which is a
+completely different WebSocket-based streaming API. MoveScore uses Lyria 3.5
+via the standard Interactions API only.
 """
 
 from __future__ import annotations
 
-import asyncio
-import io
+import base64
 import logging
-import struct
-import wave
 from pathlib import Path
 
 from google import genai
-from google.genai import types
 
 from config import settings
 from utils.errors import MusicGenerationError
 
 logger = logging.getLogger(__name__)
 
-# Lyria audio output parameters (verified from SDK examples)
-AUDIO_SAMPLE_RATE = 48000  # 48 kHz
-AUDIO_CHANNELS = 2          # Stereo
-AUDIO_SAMPLE_WIDTH = 2      # 16-bit PCM = 2 bytes per sample
-
-# Maximum audio collection time (safety limit)
-MAX_COLLECTION_SECS = 120.0
+# Lyria 3.5 output format (via Interactions API)
+AUDIO_MIME_TYPE = "audio/mp3"
+AUDIO_EXTENSION = ".mp3"
 
 
 def _get_client() -> genai.Client:
@@ -56,17 +48,22 @@ def generate_music(
     output_type: str = "instrumental",
 ) -> Path:
     """
-    Generate music using Lyria via the Gemini Live Music API.
+    Generate music using Lyria 3.5 via the Gemini Interactions API.
+
+    The music prompt should be a natural language description with timestamp
+    markers like "around 0:03 strong accent", "around 0:10 freeze moment".
+    These are musical directions for the AI — not sample-accurate sync
+    guarantees.
 
     Args:
         music_prompt: Natural language music description with timestamp markers.
         duration_seconds: Target duration in seconds (from choreography analysis).
-        output_path: Local path where the WAV file will be saved.
-        bpm: Optional BPM override (from movement_tempo_bpm).
-        output_type: 'instrumental' or 'song' (song uses VOCALIZATION mode).
+        output_path: Local path where the MP3 file will be saved.
+        bpm: Optional BPM hint (included in the prompt as a musical direction).
+        output_type: 'instrumental' or 'song' (song allows vocal generation).
 
     Returns:
-        The output_path where the WAV was saved.
+        The output_path where the MP3 was saved.
 
     Raises:
         MusicGenerationError: If generation fails.
@@ -74,25 +71,24 @@ def generate_music(
     # Clamp duration
     target_secs = max(5.0, min(float(duration_seconds), 60.0))
 
+    # Build the full prompt with duration, BPM, and output type context
+    full_prompt = _build_full_prompt(music_prompt, target_secs, bpm, output_type)
+
     logger.info(
-        "Generating music with Lyria (model: %s, target: %.1fs, mode: %s)...",
+        "Generating music with Lyria 3.5 (model: %s, target: %.1fs, mode: %s)...",
         settings.lyria_model,
         target_secs,
         output_type,
     )
+    logger.debug("Full Lyria prompt (%d chars): %s", len(full_prompt), full_prompt[:300])
+
+    client = _get_client()
 
     try:
-        # Run the async generation in a new event loop
-        audio_data = asyncio.run(
-            _generate_async(
-                music_prompt=music_prompt,
-                target_secs=target_secs,
-                bpm=bpm,
-                output_type=output_type,
-            )
+        interaction = client.interactions.create(
+            model=settings.lyria_model,
+            input=full_prompt,
         )
-    except MusicGenerationError:
-        raise
     except Exception as exc:
         error_msg = str(exc)
         if "quota" in error_msg.lower():
@@ -102,111 +98,79 @@ def generate_music(
         if "not found" in error_msg.lower() or "404" in error_msg.lower():
             raise MusicGenerationError(
                 f"Lyria model '{settings.lyria_model}' not found. "
-                "Verify the model ID in your Google AI Studio account."
+                "Verify the model ID and ensure your API key has Lyria 3.5 access."
+            ) from exc
+        if "permission" in error_msg.lower() or "403" in error_msg.lower():
+            raise MusicGenerationError(
+                "Lyria 3.5 permission denied. "
+                "Verify your API key has access to Lyria 3.5 at ai.google.dev"
             ) from exc
         raise MusicGenerationError(f"Lyria generation failed: {error_msg}") from exc
 
-    if not audio_data:
+    # Extract audio from the interaction response
+    audio = interaction.output_audio
+    if audio is None or audio.data is None:
         raise MusicGenerationError(
             "Lyria returned no audio data. "
-            "Check model availability and content policy."
+            "Check model availability, content policy, and API key access."
         )
 
-    # Save as WAV
+    # audio.data is a Base64EncodedString — decode to raw bytes
+    if isinstance(audio.data, str):
+        audio_bytes = base64.b64decode(audio.data)
+    else:
+        # Already decoded by SDK
+        audio_bytes = bytes(audio.data)
+
+    if len(audio_bytes) == 0:
+        raise MusicGenerationError(
+            "Lyria returned empty audio data. Check content policy and prompt."
+        )
+
+    # Save the MP3
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    _save_as_wav(audio_data, output_path)
+    output_path.write_bytes(audio_bytes)
 
     logger.info(
-        "Music generated: %s (%d bytes, %.1fs)",
+        "Music generated: %s (%.1f KB, mime=%s)",
         output_path,
-        output_path.stat().st_size,
-        target_secs,
+        len(audio_bytes) / 1024,
+        audio.mime_type or AUDIO_MIME_TYPE,
     )
     return output_path
 
 
-async def _generate_async(
+def _build_full_prompt(
     music_prompt: str,
-    target_secs: float,
+    duration_secs: float,
     bpm: int | None,
     output_type: str,
-) -> bytes:
+) -> str:
     """
-    Async implementation of Lyria music generation.
-    Connects to the Live Music API, streams audio chunks, returns raw PCM bytes.
+    Build the complete Lyria prompt from the music plan.
+
+    Lyria 3.5 understands natural language music descriptions with approximate
+    timestamp markers. We include:
+    - The choreography-derived music plan (already has timestamps)
+    - Duration direction
+    - BPM direction if available
+    - Output type (instrumental vs vocals)
+
+    Note: These timestamp markers are musical directions, not sync guarantees.
     """
-    client = _get_client()
+    parts = [music_prompt.strip()]
 
-    # Determine generation mode
-    if output_type == "song":
-        mode = types.MusicGenerationMode.VOCALIZATION
-    else:
-        mode = types.MusicGenerationMode.QUALITY
+    # Ensure duration is mentioned if not already in the prompt
+    duration_str = f"{duration_secs:.0f} seconds"
+    if duration_str not in music_prompt and "second" not in music_prompt.lower():
+        parts.append(f"Total duration: approximately {duration_str}.")
 
-    # Build generation config
-    gen_config = types.LiveMusicGenerationConfig(
-        music_generation_mode=mode,
-    )
-    if bpm:
-        gen_config.bpm = float(bpm)
+    if bpm and "bpm" not in music_prompt.lower():
+        parts.append(f"Suggested tempo: approximately {bpm} BPM.")
 
-    # Calculate how many bytes we need for target duration
-    # PCM: sample_rate * channels * sample_width * duration
-    target_bytes = int(AUDIO_SAMPLE_RATE * AUDIO_CHANNELS * AUDIO_SAMPLE_WIDTH * target_secs)
-    collected_bytes = bytearray()
+    if output_type == "instrumental" and "instrumental" not in music_prompt.lower():
+        parts.append("Instrumental only — no lyrics, no vocals.")
+    elif output_type == "song" and "vocal" not in music_prompt.lower():
+        parts.append("Include melodic vocal phrasing (song mode).")
 
-    logger.debug(
-        "Lyria async: model=%s, target_bytes=%d, mode=%s",
-        settings.lyria_model,
-        target_bytes,
-        mode,
-    )
-
-    async with client.aio.live.music.connect(model=settings.lyria_model) as session:
-        # Send the music prompt
-        await session.set_weighted_prompts(
-            prompts=[types.WeightedPrompt(text=music_prompt, weight=1.0)]
-        )
-
-        # Set generation config
-        await session.set_music_generation_config(config=gen_config)
-
-        # Start playback
-        await session.play()
-
-        # Collect audio chunks until we have enough data
-        async for message in session.receive():
-            if message.server_content and message.server_content.audio_chunks:
-                for chunk in message.server_content.audio_chunks:
-                    if chunk.data:
-                        collected_bytes.extend(chunk.data)
-                        collected_secs = len(collected_bytes) / (
-                            AUDIO_SAMPLE_RATE * AUDIO_CHANNELS * AUDIO_SAMPLE_WIDTH
-                        )
-                        logger.debug(
-                            "Collected %.1f / %.1f seconds of audio",
-                            collected_secs,
-                            target_secs,
-                        )
-
-                        if collected_secs >= target_secs:
-                            await session.stop()
-                            break
-
-            if len(collected_bytes) >= target_bytes:
-                break
-
-    # Trim to exact target duration
-    if len(collected_bytes) > target_bytes:
-        collected_bytes = collected_bytes[:target_bytes]
-
-    return bytes(collected_bytes)
-
-
-def _save_as_wav(pcm_data: bytes, output_path: Path) -> None:
-    """Save raw PCM audio data as a WAV file."""
-    with wave.open(str(output_path), "wb") as wav_file:
-        wav_file.setnchannels(AUDIO_CHANNELS)
-        wav_file.setsampwidth(AUDIO_SAMPLE_WIDTH)
-        wav_file.setframerate(AUDIO_SAMPLE_RATE)
-        wav_file.writeframes(pcm_data)
+    return " ".join(parts)

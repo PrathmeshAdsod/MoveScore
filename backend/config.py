@@ -1,5 +1,5 @@
 """
-Agentic Cinema — Backend Configuration
+MoveScore — Backend Configuration
 Reads all settings from environment variables.
 """
 
@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Google Cloud
     google_cloud_project_id: str = ""
-    gcs_temp_bucket: str = "agentic-cinema-temp"
+    gcs_temp_bucket: str = "movescore-temp"
     gcp_region: str = "us-central1"
 
     # Gemini

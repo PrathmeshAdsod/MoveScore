@@ -1,6 +1,6 @@
 /**
- * StatusBanner — Shows current pipeline step with spinner and status text.
- * Uses .spinner class from globals.css — no inline @keyframes needed.
+ * StatusBanner — Pipeline step indicator with spinner and step-specific color.
+ * Sits below the video uploader/preview in the left column.
  */
 
 "use client";
@@ -11,14 +11,14 @@ const STEP_CONFIG: Record<
   PipelineStep,
   { label: string; color: string; showSpinner: boolean }
 > = {
-  idle:      { label: "",                                  color: "var(--text-muted)",   showSpinner: false },
-  uploading: { label: "Uploading video…",                  color: "var(--text-muted)",   showSpinner: true  },
-  analyzing: { label: "Analyzing choreography…",           color: "var(--status-analyzing)", showSpinner: true  },
-  composing: { label: "Composing music plan…",             color: "var(--status-composing)", showSpinner: true  },
-  generating:{ label: "Generating music with Lyria…",      color: "var(--status-composing)", showSpinner: true  },
-  combining: { label: "Preparing your video…",             color: "var(--text-muted)",   showSpinner: true  },
-  done:      { label: "Done!",                             color: "var(--status-ready)", showSpinner: false },
-  error:     { label: "Something went wrong.",             color: "var(--error)",        showSpinner: false },
+  idle:       { label: "",                                         color: "var(--text-muted)",       showSpinner: false },
+  uploading:  { label: "Uploading video to cloud storage…",        color: "var(--text-muted)",       showSpinner: true  },
+  analyzing:  { label: "Analysing choreography with Gemini…",      color: "var(--status-analyzing)", showSpinner: true  },
+  composing:  { label: "Composing music direction…",               color: "var(--status-composing)", showSpinner: true  },
+  generating: { label: "Generating music with Lyria 3.5…",         color: "var(--status-composing)", showSpinner: true  },
+  combining:  { label: "Combining video and audio with FFmpeg…",   color: "var(--text-muted)",       showSpinner: true  },
+  done:       { label: "Ready — your soundtrack is composed.",      color: "var(--status-ready)",     showSpinner: false },
+  error:      { label: "Something went wrong.",                    color: "var(--error)",            showSpinner: false },
 };
 
 interface StatusBannerProps {
@@ -35,22 +35,26 @@ export default function StatusBanner({ step, errorMessage }: StatusBannerProps) 
     <div
       role="status"
       aria-live="polite"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "0.625rem",
-        padding: "0.625rem 0.875rem",
-        borderRadius: "var(--radius)",
-        border: "1px solid var(--border)",
-        background: "var(--surface)",
-        fontSize: "0.875rem",
-        color: cfg.color,
-      }}
+      className="status-banner fade-up"
+      style={{ color: cfg.color, borderColor: step === "error" ? "rgba(248,113,113,0.25)" : undefined }}
     >
       {cfg.showSpinner && (
         <span className="spinner" aria-hidden="true" style={{ color: cfg.color }} />
       )}
-      <span>
+      {!cfg.showSpinner && (
+        <span
+          style={{
+            width: "7px",
+            height: "7px",
+            borderRadius: "50%",
+            background: cfg.color,
+            flexShrink: 0,
+            boxShadow: step === "done" ? `0 0 6px ${cfg.color}` : "none",
+          }}
+          className={step === "done" ? "" : "status-dot-pulse"}
+        />
+      )}
+      <span style={{ fontWeight: 500 }}>
         {step === "error" && errorMessage ? errorMessage : cfg.label}
       </span>
     </div>

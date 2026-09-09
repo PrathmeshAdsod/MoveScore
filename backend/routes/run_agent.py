@@ -1,16 +1,22 @@
 """
 Run Agent route — POST /run-agent
 
-Triggers the ChoreographyMusicAgent with a video GCS URI and user preferences.
+Triggers the MoveScore ADK agent with a video GCS URI and user preferences.
 Returns the choreography summary, music prompt, and final signed video URL.
 
-Synchronous — the request blocks until the full pipeline completes.
+The agent is synchronous internally but runs inside asyncio.to_thread() to
+avoid blocking the FastAPI event loop.
+
 Cloud Run timeout must be set to 600s to accommodate model latency.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
@@ -31,8 +37,8 @@ async def run_agent(request: RunAgentRequest) -> RunAgentResponse:
     Run the complete choreography → music → video pipeline.
 
     Supports Generate Again optimizations:
-    - cached_choreography: re-use previous analysis, skip re-analysis
-    - cached_music_prompt: re-use previous music prompt, skip re-planning
+    - cached_choreography: re-use previous analysis, skip Gemini video analysis
+    - cached_music_prompt: re-use previous music prompt, skip music planning
     """
     gcs_uri = request.gcs_uri
     preferences = request.user_preferences
@@ -46,19 +52,14 @@ async def run_agent(request: RunAgentRequest) -> RunAgentResponse:
         preferences.output_type,
     )
 
-    # Download video bytes from GCS (needed for Gemini Files API upload)
-    # Only download if we need to re-analyze (no cached choreography)
+    # Download video bytes from GCS only when re-analysis is needed
     video_bytes: bytes = b""
     video_mime_type: str = "video/mp4"
 
     if request.cached_choreography is None:
         try:
-            import tempfile
-            from pathlib import Path
-
             fd, tmp_str = tempfile.mkstemp(suffix=".mp4")
             tmp_path = Path(tmp_str)
-            import os
             os.close(fd)
             gcs.download_to_file(gcs_uri, tmp_path)
             video_bytes = tmp_path.read_bytes()
@@ -69,15 +70,16 @@ async def run_agent(request: RunAgentRequest) -> RunAgentResponse:
             logger.error("Failed to download video for analysis: %s", exc)
             raise HTTPException(status_code=500, detail="Failed to retrieve uploaded video.")
 
-    # Run the agent
+    # Run the ADK agent in a thread to avoid blocking the event loop
     try:
-        result = _agent.run(
-            video_bytes=video_bytes,
-            video_mime_type=video_mime_type,
-            video_gcs_uri=gcs_uri,
-            user_preferences=preferences,
-            cached_choreography=request.cached_choreography,
-            cached_music_prompt=request.cached_music_prompt,
+        result = await asyncio.to_thread(
+            _agent.run,
+            video_bytes,
+            video_mime_type,
+            gcs_uri,
+            preferences,
+            request.cached_choreography,
+            request.cached_music_prompt,
         )
     except AgenticCinemaError as exc:
         logger.error("Agent error: %s", exc.message)

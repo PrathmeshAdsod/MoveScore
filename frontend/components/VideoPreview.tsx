@@ -1,5 +1,5 @@
 /**
- * VideoPreview — Shows the uploaded or final video with player controls.
+ * VideoPreview — Shows the uploaded or final video in a dark card.
  */
 
 "use client";
@@ -12,41 +12,36 @@ interface VideoPreviewProps {
 
 export default function VideoPreview({ src, label, filename }: VideoPreviewProps) {
   return (
-    <div>
-      {label && (
-        <div
-          style={{
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            color: "var(--text-light)",
-            marginBottom: "0.5rem",
-          }}
-        >
-          {label}
-        </div>
-      )}
+    <div className="video-card">
       <video
         src={src}
         controls
         playsInline
-        style={{
-          width: "100%",
-          borderRadius: "var(--radius)",
-          border: "1px solid var(--border)",
-          background: "#000",
-          display: "block",
-          maxHeight: "480px",
-          objectFit: "contain",
-        }}
+        id="video-preview-player"
       />
-      {filename && (
-        <div
-          className="text-muted text-small"
-          style={{ marginTop: "0.375rem" }}
-        >
-          {filename}
+      {(label || filename) && (
+        <div className="video-card-label">
+          {label && (
+            <span
+              style={{
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--text-light)",
+              }}
+            >
+              {label}
+            </span>
+          )}
+          {filename && (
+            <span
+              className="text-small"
+              style={{ color: "var(--text-light)", marginLeft: label ? "auto" : 0 }}
+            >
+              {filename}
+            </span>
+          )}
         </div>
       )}
     </div>

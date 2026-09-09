@@ -1,12 +1,12 @@
 /**
- * ChipSelector — Compact pill/chip selector with "+ More" expand.
+ * ChipSelector — HF-style pill chip selector with colored dots + "More" expand.
  *
- * Matches the Hugging Face provider selector style from the reference image:
- * - Small rounded pills with subtle border
- * - Selected: dark filled background
- * - Hover: slightly darker surface
- * - First N items visible; "+ X more" expands inline
- * - Optional 1-2 sentence tooltip shown on hover via CSS .chip-wrap / .chip-tooltip
+ * Each chip can have:
+ *   - A colored dot (dotColor CSS var or hex)
+ *   - A tooltip shown on hover via CSS
+ *   - Selected state: light fill with dark text
+ *
+ * Deselect by clicking the selected chip again.
  */
 
 "use client";
@@ -16,6 +16,7 @@ import { useState } from "react";
 export interface ChipOption {
   label: string;
   tooltip?: string;
+  dotColor?: string; // CSS color string e.g. "#f472b6" or "var(--dot-pop)"
 }
 
 interface ChipSelectorProps {
@@ -42,23 +43,37 @@ export default function ChipSelector({
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", alignItems: "center" }}>
-      {visible.map((opt) => (
-        <div key={opt.label} className="chip-wrap">
-          <button
-            type="button"
-            className={`chip${selected === opt.label ? " selected" : ""}`}
-            onClick={() => handleClick(opt.label)}
-            aria-pressed={selected === opt.label}
-          >
-            {opt.label}
-          </button>
-          {opt.tooltip && (
-            <span className="chip-tooltip" role="tooltip">
-              {opt.tooltip}
-            </span>
-          )}
-        </div>
-      ))}
+      {visible.map((opt) => {
+        const isSelected = selected === opt.label;
+        return (
+          <div key={opt.label} className="chip-wrap">
+            <button
+              type="button"
+              className={`chip${isSelected ? " selected" : ""}`}
+              onClick={() => handleClick(opt.label)}
+              aria-pressed={isSelected}
+            >
+              {opt.dotColor && (
+                <span
+                  className="chip-dot"
+                  style={{
+                    background: opt.dotColor,
+                    // When selected, the background is light so make dot slightly darker/opaque
+                    opacity: isSelected ? 0.8 : 0.75,
+                    filter: isSelected ? "saturate(0.7) brightness(0.7)" : "none",
+                  }}
+                />
+              )}
+              {opt.label}
+            </button>
+            {opt.tooltip && (
+              <span className="chip-tooltip" role="tooltip">
+                {opt.tooltip}
+              </span>
+            )}
+          </div>
+        );
+      })}
 
       {hiddenCount > 0 && (
         <button

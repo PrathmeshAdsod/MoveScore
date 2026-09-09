@@ -67,7 +67,7 @@ def main() -> None:
     output_path = Path(args.output) if args.output else video_path.parent / f"{video_path.stem}_with_music.mp4"
 
     print(f"\n{'='*60}")
-    print("Agentic Cinema — End-to-End Pipeline Proof")
+    print("MoveScore — End-to-End Pipeline Proof")
     print(f"{'='*60}")
     print(f"Video:    {video_path.name}  ({video_path.stat().st_size / 1024 / 1024:.1f} MB)")
     print(f"Style:    {args.style}")
