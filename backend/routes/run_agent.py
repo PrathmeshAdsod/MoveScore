@@ -55,9 +55,11 @@ async def run_agent(request: RunAgentRequest) -> RunAgentResponse:
         try:
             import tempfile
             from pathlib import Path
-            import shutil
 
-            tmp_path = Path(tempfile.mktemp(suffix=".mp4"))
+            fd, tmp_str = tempfile.mkstemp(suffix=".mp4")
+            tmp_path = Path(tmp_str)
+            import os
+            os.close(fd)
             gcs.download_to_file(gcs_uri, tmp_path)
             video_bytes = tmp_path.read_bytes()
             tmp_path.unlink(missing_ok=True)

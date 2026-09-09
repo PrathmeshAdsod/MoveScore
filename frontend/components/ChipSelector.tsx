@@ -17,7 +17,6 @@ interface ChipSelectorProps {
   selected: string | null;
   onSelect: (value: string | null) => void;
   initialVisibleCount?: number;
-  multiSelect?: boolean;
 }
 
 export default function ChipSelector({

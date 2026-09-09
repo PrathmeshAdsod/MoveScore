@@ -40,11 +40,14 @@ echo "=================================================="
 echo "[1/3] Configuring Docker authentication..."
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-# ── Step 2: Build with Cloud Build (passes BACKEND_URL as build arg) ──────────
+# ── Step 2: Build with Cloud Build (passes BACKEND_URL as Docker build arg) ───
+# Uses frontend/cloudbuild.yaml which threads _BACKEND_URL → --build-arg.
+# Note: gcloud builds submit does not accept --build-arg directly; the
+#       cloudbuild.yaml substitution mechanism is the correct approach.
 echo "[2/3] Building and pushing image via Cloud Build..."
 gcloud builds submit ./frontend \
-  --tag "${IMAGE_NAME}:latest" \
-  --build-arg "NEXT_PUBLIC_BACKEND_URL=${BACKEND_URL}" \
+  --config "frontend/cloudbuild.yaml" \
+  --substitutions "_IMAGE_NAME=${IMAGE_NAME}:latest,_BACKEND_URL=${BACKEND_URL}" \
   --project "${PROJECT_ID}"
 
 # ── Step 3: Deploy to Cloud Run ───────────────────────────────────────────────

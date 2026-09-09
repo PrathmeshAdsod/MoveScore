@@ -91,7 +91,7 @@ def main() -> None:
     print(music_prompt)
     print(f"{'─'*50}\n")
 
-    output_path = Path("./test_output_music.mp3")
+    output_path = Path("./test_output_music.wav")
     print(f"Generating music (duration: {duration_seconds:.0f}s)...")
     print("This may take 30–60 seconds...\n")
 
@@ -112,6 +112,7 @@ def main() -> None:
     print(f"✅ SUCCESS! Music generated.")
     print(f"   Output:   {output_path.resolve()}")
     print(f"   Size:     {size_kb:.1f} KB")
+    print(f"   Format:   WAV (48kHz stereo 16-bit PCM)")
     print(f"\nPlay the file to verify the output sounds correct.")
     print("Then run proof_end_to_end.py for the complete pipeline test.\n")
 

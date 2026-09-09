@@ -31,8 +31,8 @@ RUNTIME_SA="${RUNTIME_SA:-movescore-backend-sa@${PROJECT_ID}.iam.gserviceaccount
 # These are read from local .env for the deployment command.
 GCS_TEMP_BUCKET="${GCS_TEMP_BUCKET:-agentic-cinema-temp}"
 GEMINI_API_KEY="${GEMINI_API_KEY:-}"
-GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
-LYRIA_MODEL="${LYRIA_MODEL:-lyria-002}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
+LYRIA_MODEL="${LYRIA_MODEL:-lyria-3.5}"
 FRONTEND_URL="${FRONTEND_URL:-}"  # Set to deployed frontend URL after frontend deploy
 
 if [ -z "$GEMINI_API_KEY" ]; then

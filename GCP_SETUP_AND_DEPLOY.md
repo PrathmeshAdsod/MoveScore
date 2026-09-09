@@ -374,9 +374,9 @@ GCS_TEMP_BUCKET=agentic-cinema-temp-xxx       # your bucket name from Section 6
 GCP_REGION=us-central1
 
 GEMINI_API_KEY=AIza...                        # your API key from Section 8
-GEMINI_MODEL=gemini-2.5-flash                 # verify exact ID in Section 8
+GEMINI_MODEL=gemini-3.8-flash                 # verify exact ID string in Section 8 (may have -001 suffix)
 
-LYRIA_MODEL=lyria-002                         # verify exact ID in Section 9
+LYRIA_MODEL=lyria-3.5                         # verify exact ID in Section 9
 
 PORT=8080
 FRONTEND_URL=http://localhost:3000            # update after deploying frontend
@@ -570,8 +570,8 @@ export PROJECT_ID=agentic-cinema-demo        # your project ID
 export REGION=us-central1
 export GCS_TEMP_BUCKET=agentic-cinema-temp-xxx
 export GEMINI_API_KEY=AIza...               # your Gemini API key
-export GEMINI_MODEL=gemini-2.5-flash
-export LYRIA_MODEL=lyria-002
+export GEMINI_MODEL=gemini-3.8-flash
+export LYRIA_MODEL=lyria-3.5
 export RUNTIME_SA=movescore-backend-sa@${PROJECT_ID}.iam.gserviceaccount.com
 
 # Run the deploy script:

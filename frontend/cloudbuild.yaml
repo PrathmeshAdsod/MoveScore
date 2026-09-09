@@ -1,0 +1,21 @@
+# Cloud Build configuration for the Next.js frontend.
+# Called by deploy-frontend.sh via:
+#   gcloud builds submit ./frontend \
+#     --config frontend/cloudbuild.yaml \
+#     --substitutions _IMAGE_NAME=...,_BACKEND_URL=...
+#
+# The substitution _BACKEND_URL is passed as a Docker build arg so that
+# NEXT_PUBLIC_BACKEND_URL is baked into the Next.js standalone build.
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '--build-arg'
+      - 'NEXT_PUBLIC_BACKEND_URL=${_BACKEND_URL}'
+      - '-t'
+      - '${_IMAGE_NAME}'
+      - '.'
+
+images:
+  - '${_IMAGE_NAME}'
