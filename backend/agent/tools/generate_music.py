@@ -5,7 +5,6 @@ from __future__ import annotations
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from services import lyria_service
 from services import storage as gcs
@@ -14,7 +13,7 @@ from services import storage as gcs
 def generate_music_tool(
     music_prompt: str,
     duration_seconds: float,
-    bpm: Optional[int] = None,
+    bpm: int | None = None,
     output_type: str = "instrumental",
 ) -> str:
     """
@@ -50,9 +49,7 @@ def generate_music_tool(
 
         # Upload MP3 to GCS
         blob_name = gcs.make_blob_name("audio", "mp3")
-        audio_gcs_uri = gcs.upload_file(
-            audio_path, blob_name, content_type="audio/mpeg"
-        )
+        audio_gcs_uri = gcs.upload_file(audio_path, blob_name, content_type="audio/mpeg")
         return audio_gcs_uri
 
     finally:

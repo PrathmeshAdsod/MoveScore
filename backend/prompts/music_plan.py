@@ -7,8 +7,6 @@ a timestamp-aware natural language music prompt for Lyria.
 
 from __future__ import annotations
 
-import json
-
 from schemas.api import UserPreferences
 from schemas.choreography import ChoreographySchema
 
@@ -54,7 +52,9 @@ def build_music_plan_prompt(
     if preferences.movement_feel:
         prefs_parts.append(f"Movement Feel: {preferences.movement_feel}")
     if preferences.output_type:
-        output_desc = "Song with vocals" if preferences.output_type == "song" else "Instrumental only"
+        output_desc = (
+            "Song with vocals" if preferences.output_type == "song" else "Instrumental only"
+        )
         prefs_parts.append(f"Output: {output_desc}")
     if preferences.custom_instruction:
         prefs_parts.append(f"Custom instruction: {preferences.custom_instruction}")

@@ -13,9 +13,7 @@ from __future__ import annotations
 
 import io
 import logging
-import tempfile
 import time
-from pathlib import Path
 
 from google import genai
 from google.genai import types
@@ -61,18 +59,14 @@ def upload_video_to_files_api(
         ),
     )
 
-    logger.info(
-        "File uploaded: name=%s, state=%s", response.name, response.state
-    )
+    logger.info("File uploaded: name=%s, state=%s", response.name, response.state)
 
     # Wait for the file to be ACTIVE before using it
     _wait_for_file_active(client, response.name)
     return response
 
 
-def _wait_for_file_active(
-    client: genai.Client, file_name: str, max_wait_secs: int = 60
-) -> None:
+def _wait_for_file_active(client: genai.Client, file_name: str, max_wait_secs: int = 60) -> None:
     """Poll until the uploaded file transitions to ACTIVE state."""
     deadline = time.time() + max_wait_secs
     while time.time() < deadline:
@@ -80,9 +74,7 @@ def _wait_for_file_active(
         if file_info.state == types.FileState.ACTIVE:
             return
         if file_info.state == types.FileState.FAILED:
-            raise ChoreographyAnalysisError(
-                f"Gemini Files API processing failed for {file_name}"
-            )
+            raise ChoreographyAnalysisError(f"Gemini Files API processing failed for {file_name}")
         logger.debug("File state: %s — waiting...", file_info.state)
         time.sleep(2)
     raise ChoreographyAnalysisError(
@@ -146,9 +138,7 @@ def analyze_choreography(
                 )
 
                 raw_text = response.text
-                logger.debug(
-                    "Gemini raw response (first 500 chars): %s", raw_text[:500]
-                )
+                logger.debug("Gemini raw response (first 500 chars): %s", raw_text[:500])
 
                 # Parse and validate
                 choreography = ChoreographySchema.model_validate_json(raw_text)
@@ -166,9 +156,7 @@ def analyze_choreography(
                 if attempt < max_retries:
                     time.sleep(1)
 
-        raise ChoreographyAnalysisError(
-            f"Failed after {max_retries} attempts: {last_error}"
-        )
+        raise ChoreographyAnalysisError(f"Failed after {max_retries} attempts: {last_error}")
 
     finally:
         # Always clean up Files API resource

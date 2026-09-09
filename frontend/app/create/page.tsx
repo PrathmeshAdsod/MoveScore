@@ -103,6 +103,10 @@ export default function CreatePage() {
       setGcsUri(res.gcs_uri);
       setStep("idle");
     } catch (err) {
+      URL.revokeObjectURL(localUrl);
+      setUploadedFile(null);
+      setPreviewUrl(null);
+      setGcsUri(null);
       setStep("error");
       setErrorMessage(
         err instanceof Error ? err.message : "Upload failed. Please try again."

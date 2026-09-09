@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import datetime
 import logging
-import mimetypes
 import uuid
 from pathlib import Path
 
 from google.cloud import storage
-from google.oauth2 import service_account
 
 from config import settings
 from utils.errors import StorageError
@@ -88,22 +86,63 @@ def download_to_file(gcs_uri: str, local_path: Path) -> None:
 
 def generate_signed_url(gcs_uri: str, ttl_hours: int | None = None) -> str:
     """
-    Generate a time-limited signed URL for a GCS object.
+    Generate a time-limited V4 signed URL for a GCS object.
 
-    Requires the Cloud Run service account to have the
-    roles/iam.serviceAccountTokenCreator role (for sign_bytes).
+    On Cloud Run: Uses Application Default Credentials (ADC) attached to the
+    Cloud Run service account, passing service_account_email and access_token
+    so GCS calls the IAM Credentials API (signBlob).
+    Requires roles/iam.serviceAccountTokenCreator on the service account.
+
+    Locally: Uses private key signer if present, or impersonated service account email.
     """
     ttl = ttl_hours or settings.signed_url_ttl_hours
     try:
         client = _get_client()
         blob_name = _blob_name_from_uri(gcs_uri)
         blob = _bucket(client).blob(blob_name)
-        url = blob.generate_signed_url(
+
+        credentials = client._credentials
+
+        # If credentials already have a private key signer (e.g. key file or emulator)
+        if hasattr(credentials, "signer") and credentials.signer is not None:
+            return blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(hours=ttl),
+                method="GET",
+            )
+
+        # ADC without private key (Cloud Run attached service account):
+        from google.auth.transport.requests import Request
+
+        if not credentials.valid:
+            credentials.refresh(Request())
+
+        sa_email = (
+            getattr(credentials, "service_account_email", None) or settings.service_account_email
+        )
+
+        if not sa_email:
+            try:
+                from google.auth.compute_engine import _metadata
+
+                info = _metadata.get_service_account_info(Request())
+                sa_email = info.get("email") if isinstance(info, dict) else None
+            except Exception:
+                pass
+
+        if not sa_email:
+            raise StorageError(
+                "Cannot sign URL with ADC: service account email could not be detected. "
+                "Ensure RUNTIME_SA/SERVICE_ACCOUNT_EMAIL is set or running on Cloud Run with attached SA."
+            )
+
+        return blob.generate_signed_url(
             version="v4",
             expiration=datetime.timedelta(hours=ttl),
             method="GET",
+            service_account_email=sa_email,
+            access_token=credentials.token,
         )
-        return url
     except Exception as exc:
         raise StorageError(f"Failed to generate signed URL: {exc}") from exc
 
@@ -132,7 +171,7 @@ def _blob_name_from_uri(gcs_uri: str) -> str:
     if not gcs_uri.startswith("gs://"):
         raise ValueError(f"Not a valid GCS URI: {gcs_uri}")
     # gs://bucket-name/path/to/blob  →  path/to/blob
-    parts = gcs_uri[len("gs://"):].split("/", 1)
+    parts = gcs_uri[len("gs://") :].split("/", 1)
     if len(parts) < 2:
         raise ValueError(f"Could not parse blob name from URI: {gcs_uri}")
     return parts[1]

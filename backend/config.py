@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     google_cloud_project_id: str = ""
     gcs_temp_bucket: str = "movescore-temp"
     gcp_region: str = "us-central1"
+    service_account_email: str = ""
+    agent_engine_resource_name: str = ""
+    local_dev_mode: bool = False
 
     # Gemini
     gemini_api_key: str = ""

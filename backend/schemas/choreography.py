@@ -8,7 +8,6 @@ It is also used as the response_schema for strict JSON enforcement.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -46,9 +45,7 @@ class Segment(BaseModel):
     start_sec: float = Field(..., description="Segment start time in seconds")
     end_sec: float = Field(..., description="Segment end time in seconds")
     label: str = Field(..., description="Short label for this segment")
-    description: str = Field(
-        ..., description="Describe only clearly visible movements"
-    )
+    description: str = Field(..., description="Describe only clearly visible movements")
     energy: EnergyLevel
     move_type: MoveType
     intensity: int = Field(..., ge=1, le=10, description="1=stillness, 10=max exertion")
@@ -84,7 +81,7 @@ class ChoreographySchema(BaseModel):
 
     duration_seconds: float = Field(..., description="Total video duration in seconds")
     overall_energy: EnergyLevel
-    movement_tempo_bpm: Optional[int] = Field(
+    movement_tempo_bpm: int | None = Field(
         None,
         description=(
             "Estimated tempo inferred from observed movement rhythm. "

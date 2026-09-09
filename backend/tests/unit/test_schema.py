@@ -7,18 +7,12 @@ No API calls — pure schema logic.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from schemas.choreography import (
-    AnalysisConfidence,
     ChoreographySchema,
     EnergyLevel,
-    KeyMoment,
-    MovementPatterns,
     MoveType,
-    Segment,
 )
 
 

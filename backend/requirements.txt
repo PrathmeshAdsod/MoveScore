@@ -9,9 +9,10 @@ google-genai>=2.0.0
 google-auth>=2.36.0
 google-cloud-storage>=2.19.0
 
-# Google ADK (Agent Development Kit)
-# Used for real agent orchestration via google.adk.Agent + FunctionTool + Runner
+# Google ADK & Gemini Enterprise Agent Platform (Agent Runtime)
 google-adk>=2.0.0
+google-cloud-aiplatform[agent_engines,adk]>=1.112.0
+google-cloud-secret-manager>=2.20.0
 
 # Async event loop support for running ADK agent from sync context
 nest_asyncio>=1.6.0

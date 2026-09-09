@@ -41,13 +41,16 @@ def parse_args() -> argparse.Namespace:
 
 def check_prerequisites() -> None:
     import shutil
+
     errors: list[str] = []
     if not settings.gemini_api_key:
         errors.append("GEMINI_API_KEY is not set")
     if not settings.gcs_temp_bucket:
         errors.append("GCS_TEMP_BUCKET is not set")
     if shutil.which("ffmpeg") is None:
-        errors.append("ffmpeg not found on PATH (install: brew install ffmpeg or apt install ffmpeg)")
+        errors.append(
+            "ffmpeg not found on PATH (install: brew install ffmpeg or apt install ffmpeg)"
+        )
     if errors:
         print("Prerequisites not met:")
         for e in errors:
@@ -64,7 +67,11 @@ def main() -> None:
         print(f"ERROR: Video file not found: {video_path}")
         sys.exit(1)
 
-    output_path = Path(args.output) if args.output else video_path.parent / f"{video_path.stem}_with_music.mp4"
+    output_path = (
+        Path(args.output)
+        if args.output
+        else video_path.parent / f"{video_path.stem}_with_music.mp4"
+    )
 
     print(f"\n{'='*60}")
     print("MoveScore — End-to-End Pipeline Proof")
@@ -76,14 +83,13 @@ def main() -> None:
     print(f"Output:   {output_path}")
     print(f"{'='*60}\n")
 
+    import tempfile
+
     from schemas.api import UserPreferences
-    from schemas.choreography import ChoreographySchema
+    from services.ffmpeg_service import combine_video_and_audio
     from services.gemini_service import analyze_choreography, plan_music
     from services.lyria_service import generate_music
-    from services.storage import upload_bytes, make_blob_name, generate_signed_url, upload_file
-    from services.ffmpeg_service import combine_video_and_audio
-    import tempfile
-    import shutil
+    from services.storage import make_blob_name, upload_bytes
 
     suffix = video_path.suffix.lower()
     mime_map = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
@@ -149,9 +155,9 @@ def main() -> None:
     print(f"\n{'='*60}")
     print("✅ END-TO-END PIPELINE COMPLETE")
     print(f"{'='*60}")
-    print(f"\nFinal video signed URL (valid 1h):")
+    print("\nFinal video signed URL (valid 1h):")
     print(f"  {signed_url}")
-    print(f"\nOpen the URL in a browser to preview and download.")
+    print("\nOpen the URL in a browser to preview and download.")
     print()
 
 

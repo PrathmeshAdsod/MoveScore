@@ -1,761 +1,452 @@
 # GCP Setup & Deployment Guide
-## Agentic Cinema — Complete Step-by-Step Instructions
+## MoveScore — Production Guide for Gemini Enterprise Agent Platform
 
-> This guide takes you from zero to a live, deployed Agentic Cinema application.
-> Follow every section in order. Do not skip sections.
-> Commands marked `# run this` should be run exactly as shown (after replacing placeholders).
-
----
-
-## Section 1 — Prerequisites
-
-### What you need installed locally
-
-**1. Google Cloud CLI (gcloud)**
-```bash
-# Check if installed:
-gcloud version
-
-# If not installed, download from:
-# https://cloud.google.com/sdk/docs/install
-# After installing, initialize:
-gcloud init
-```
-
-**2. Node.js (v20 or later)**
-```bash
-# Check:
-node --version   # should show v20.x.x or higher
-npm --version
-
-# Install from: https://nodejs.org/
-```
-
-**3. Python (3.12)**
-```bash
-# Check:
-python3 --version   # should show 3.12.x
-
-# Install from: https://python.org/downloads/
-```
-
-**4. Git**
-```bash
-# Check:
-git --version
-
-# Install from: https://git-scm.com/
-```
-
-**5. FFmpeg (for local development and proof scripts)**
-```bash
-# macOS:
-brew install ffmpeg
-
-# Ubuntu/Debian:
-sudo apt-get install -y ffmpeg
-
-# Check:
-ffmpeg -version
-```
-
-**6. Docker (optional — only needed if building images locally)**
-```bash
-# Check:
-docker --version
-
-# Cloud Build (used in deployment scripts) doesn't require local Docker.
-# Install from: https://docs.docker.com/get-docker/
-```
+> This guide contains verified, end-to-end instructions to configure Google Cloud Platform, set up least-privilege IAM security, deploy to **Gemini Enterprise Agent Platform (Agent Runtime)**, and run MoveScore in production.
+> 
+> **Do not skip sections.** Execute each command in order in your bash/zsh shell.
 
 ---
 
-## Section 2 — Google Authentication
+## Architecture & Authentication Overview
 
-You need two types of authentication:
+MoveScore uses a clean, least-privilege enterprise architecture:
 
-| Type | Command | What it does |
-|------|---------|--------------|
-| **Account login** | `gcloud auth login` | Lets gcloud run commands as you |
-| **Application Default** | `gcloud auth application-default login` | Lets Python code (your backend) call Google APIs locally |
+```
+[Browser Client]
+       │
+       ▼ (1) Upload Video (validated ≤ 60s via ffprobe)
+[FastAPI on Cloud Run] ──► Uploads to GCS (video_gcs_uri)
+       │
+       ▼ (2) Orchestrate Pipeline (video_gcs_uri, preferences)
+[Gemini Enterprise Agent Runtime (Agent Engine ReasoningEngine)]
+   • Step 1: analyze_choreography (Gemini 3.8 Flash via Files API)
+   • Step 2: plan_music (Gemini 3.8 Flash text reasoning)
+   • Step 3: generate_music (Lyria 3.5 via Interactions API, uploads MP3 to GCS)
+   ◄── Returns structured JSON: {choreography_json, choreography_summary, music_prompt, audio_gcs_uri}
+       │
+       ▼ (3) Deterministic Media Processing (Local on Cloud Run)
+[FastAPI on Cloud Run]
+   • Step 4: combine_media via local FFmpeg (H.264/yuv420p + AAC)
+   • Step 5: Generates V4 Signed URL via Cloud Run ADC + IAM Credentials API
+       │
+       ▼
+[Browser Client: Video Preview & Download]
+```
 
-**Run both:**
+### Authentication Model Matrix
+| Component | Credential Type | Purpose | IAM Scope / API |
+| :--- | :--- | :--- | :--- |
+| **Gemini 3.8 Flash & Lyria 3.5** | `GEMINI_API_KEY` (Secret Manager) | Multimodal video analysis & Lyria Interactions API | Stored in Secret Manager `gemini-api-key`, mounted as env var in Cloud Run |
+| **Cloud Run Backend** | Attached Service Account (ADC) | GCS bucket reads/writes & V4 Signed URL generation | `roles/storage.objectAdmin` (bucket level), `roles/iam.serviceAccountTokenCreator` (on SA self) |
+| **Cloud Run Backend -> Agent Runtime** | Attached Service Account (ADC) | Calling Agent Runtime Reasoning Engine | `roles/aiplatform.user` (project level) |
+| **Agent Runtime Agent Identity** | Agent Identity SA | Downloading video & uploading generated MP3 | `roles/storage.objectAdmin` (bucket level) |
+
+---
+
+## Section 1 — Prerequisites & Local Setup
+
+### Local Tools
+1. **Google Cloud CLI (`gcloud`)**:
+   ```bash
+   gcloud version
+   # If not installed: https://cloud.google.com/sdk/docs/install
+   ```
+2. **Node.js (v20+) & npm**:
+   ```bash
+   node --version
+   npm --version
+   ```
+3. **Python (3.11 or 3.12)**:
+   ```bash
+   python3 --version
+   ```
+4. **FFmpeg & ffprobe**:
+   ```bash
+   ffmpeg -version
+   ffprobe -version
+   # Ubuntu/Debian: sudo apt-get install -y ffmpeg
+   # macOS: brew install ffmpeg
+   ```
+
+---
+
+## Section 2 — GCP Project, Billing & Authentication
+
+### 1. Set Project Variables
 ```bash
-# 1. Log in to your Google account for gcloud commands:
+export PROJECT_ID="your-gcp-project-id"   # Replace with your actual project ID
+export REGION="us-central1"
+export GCS_TEMP_BUCKET="movescore-temp-${PROJECT_ID}"
+export RUNTIME_SA="movescore-backend-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+
+# Set default project and region for gcloud
+gcloud config set project "${PROJECT_ID}"
+gcloud config set run/region "${REGION}"
+```
+
+### 2. Verify Billing & Credits
+Ensure billing is active on your project (required for Cloud Run, Cloud Build, and Vertex AI):
+```bash
+gcloud beta billing projects describe "${PROJECT_ID}"
+```
+
+### 3. Authenticate CLI
+```bash
+# Authenticate your personal user account for gcloud commands
 gcloud auth login
 
-# 2. Set up Application Default Credentials for local Python development:
+# Set up local Application Default Credentials (ADC) for local Python testing
 gcloud auth application-default login
 ```
 
-After running `gcloud auth application-default login`:
-- A browser window opens
-- Sign in with your Google account
-- Credentials are saved to `~/.config/gcloud/application_default_credentials.json`
-- Your local Python backend will automatically use these when running locally
-
-**Important**: The deployed Cloud Run service does NOT use these credentials. It uses an attached service account (configured in Section 7).
-
 ---
 
-## Section 3 — Create / Select GCP Project
+## Section 3 — Enable Required Google APIs
 
-Replace `YOUR_PROJECT_ID` with a unique ID for your project (lowercase letters, numbers, hyphens only).
-
+Enable only the services strictly required by MoveScore:
 ```bash
-# Set your project ID and region as shell variables.
-# Replace these values:
-PROJECT_ID=agentic-cinema-demo      # change this — must be globally unique
-REGION=us-central1                  # recommended region for Gemini/Lyria
-
-# Option A: Create a new project
-gcloud projects create $PROJECT_ID --name="Agentic Cinema"
-
-# Option B: Use an existing project
-# (skip the create command above)
-
-# Set this project as your active project:
-gcloud config set project $PROJECT_ID
-
-# Verify:
-gcloud config get project
-# Should print: agentic-cinema-demo (or your chosen ID)
-
-# Also set your default region:
-gcloud config set run/region $REGION
-```
-
----
-
-## Section 4 — Billing / Hackathon Credits
-
-**This must be done manually in the Google Cloud Console.**
-
-1. Go to: https://console.cloud.google.com/billing
-2. Click **"Link a billing account"**
-3. If you have hackathon credits: select the billing account associated with your credits
-4. If you don't see hackathon credits: check your hackathon registration email for a coupon code, then redeem it at https://console.cloud.google.com/billing/credits
-
-**Verify billing is active:**
-```bash
-gcloud beta billing projects describe $PROJECT_ID
-# Look for: billingEnabled: true
-```
-
-**Note**: Without a linked billing account, the API enablement in Section 5 will fail.
-
----
-
-## Section 5 — Enable Required APIs
-
-These are the exact APIs required by this application:
-
-```bash
-# Enable all required APIs in one command:
 gcloud services enable \
   run.googleapis.com \
-  storage.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
+  storage.googleapis.com \
+  iamcredentials.googleapis.com \
+  secretmanager.googleapis.com \
   aiplatform.googleapis.com \
-  generativelanguage.googleapis.com \
-  iam.googleapis.com \
-  --project $PROJECT_ID
+  --project "${PROJECT_ID}"
 ```
 
-**What each API does:**
-- `run.googleapis.com` — Cloud Run (hosts your frontend and backend)
-- `storage.googleapis.com` — Cloud Storage (temporary file storage)
-- `artifactregistry.googleapis.com` — Docker image registry
-- `cloudbuild.googleapis.com` — Builds Docker images without local Docker
-- `aiplatform.googleapis.com` — Vertex AI (Gemini model access)
-- `generativelanguage.googleapis.com` — Gemini API direct access
-- `iam.googleapis.com` — IAM (service accounts and permissions)
-
-**Verify:**
+Verification:
 ```bash
-gcloud services list --enabled --project $PROJECT_ID | grep -E "run|storage|artifact|build|aiplatform|generative"
+gcloud services list --enabled --filter="name:(run artifactregistry cloudbuild storage iamcredentials secretmanager aiplatform)"
 ```
 
 ---
 
-## Section 6 — GCS Bucket (Temporary Storage)
+## Section 4 — Gemini & Lyria API Key in Secret Manager
 
-This bucket stores uploaded videos, generated audio, and final videos. Files auto-delete after 24 hours.
+The application uses `gemini-3.8-flash` for multimodal analysis/planning and `lyria-3.5` for music generation.
 
+### 1. Obtain your Gemini API Key
+1. Visit [Google AI Studio](https://aistudio.google.com/apikey).
+2. Create an API key associated with your project `${PROJECT_ID}`.
+
+### 2. Store Key in Secret Manager
+Do **not** commit keys or deploy them in plaintext environment variable commands. Store in Secret Manager:
 ```bash
-BUCKET_NAME=agentic-cinema-temp-$PROJECT_ID   # must be globally unique
-# You can also just use: agentic-cinema-temp-<random>
+echo -n "YOUR_ACTUAL_GEMINI_API_KEY" | gcloud secrets create gemini-api-key \
+  --data-file=- \
+  --replication-policy="automatic" \
+  --project "${PROJECT_ID}"
+```
 
-# Create the bucket in your chosen region:
-gcloud storage buckets create gs://$BUCKET_NAME \
-  --location=$REGION \
-  --uniform-bucket-level-access \
-  --project $PROJECT_ID
+---
 
-# Write the lifecycle rule configuration:
-cat > /tmp/lifecycle.json << 'EOF'
+## Section 5 — Cloud Storage Bucket & 24-Hour Lifecycle
+
+Create the temporary bucket with an automatic 24-hour expiration policy:
+
+### 1. Create Bucket
+```bash
+gcloud storage buckets create "gs://${GCS_TEMP_BUCKET}" \
+  --project="${PROJECT_ID}" \
+  --location="${REGION}" \
+  --uniform-bucket-level-access
+```
+
+### 2. Set 24-Hour Auto-Delete Lifecycle Policy
+Create a lifecycle configuration file `gcs-lifecycle.json`:
+```bash
+cat << 'EOF' > gcs-lifecycle.json
 {
   "rule": [
     {
-      "action": { "type": "Delete" },
-      "condition": {
-        "age": 1,
-        "matchesStorageClass": ["STANDARD"]
-      }
+      "action": {"type": "Delete"},
+      "condition": {"age": 1}
     }
   ]
 }
 EOF
 
-# Apply the lifecycle rule:
-gcloud storage buckets update gs://$BUCKET_NAME \
-  --lifecycle-file=/tmp/lifecycle.json
-
-# Verify the lifecycle rule:
-gcloud storage buckets describe gs://$BUCKET_NAME \
-  --format="value(lifecycle_config)"
+gcloud storage buckets update "gs://${GCS_TEMP_BUCKET}" --lifecycle-file=gcs-lifecycle.json
+rm gcs-lifecycle.json
 ```
 
-**Note down your bucket name** — you'll need it in Section 10 (environment variables).
+Verify lifecycle:
+```bash
+gcloud storage buckets describe "gs://${GCS_TEMP_BUCKET}" --format="json(lifecycle)"
+```
 
 ---
 
-## Section 7 — Service Accounts and IAM
+## Section 6 — Service Accounts & Least-Privilege IAM Setup
 
-Create a dedicated service account for the backend Cloud Run service. This follows the principle of least privilege.
+MoveScore follows Google Cloud's least-privilege security model.
 
+### 1. Create Backend Cloud Run Service Account
 ```bash
-# Service account name for the backend
-SA_NAME=movescore-backend-sa
-SA_EMAIL=${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+gcloud iam service-accounts create movescore-backend-sa \
+  --display-name="MoveScore Backend Cloud Run SA" \
+  --project="${PROJECT_ID}"
+```
 
-# Create the service account:
-gcloud iam service-accounts create $SA_NAME \
-  --description="Agentic Cinema backend service account" \
-  --display-name="Agentic Cinema Backend" \
-  --project $PROJECT_ID
-
-# Grant required roles:
-
-# 1. Cloud Storage — read/write objects in the temp bucket
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
+### 2. Grant Bucket Storage Permissions (Scoped to Bucket Only)
+Grant `roles/storage.objectAdmin` **only** on the temp bucket, not project-wide:
+```bash
+gcloud storage buckets add-iam-policy-binding "gs://${GCS_TEMP_BUCKET}" \
+  --member="serviceAccount:${RUNTIME_SA}" \
   --role="roles/storage.objectAdmin"
+```
 
-# 2. Vertex AI — access Gemini models via Vertex AI
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
+### 3. Grant Token Creator for V4 Signed URLs via ADC (Without Private Keys)
+To allow Cloud Run to generate V4 signed URLs using Application Default Credentials (via the IAM Credentials `signBlob` API), the service account must have `roles/iam.serviceAccountTokenCreator` on **itself**:
+```bash
+gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SA}" \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/iam.serviceAccountTokenCreator" \
+  --project="${PROJECT_ID}"
+```
+
+### 4. Grant Secret Manager Access
+Allow the service account to read the Gemini API key secret:
+```bash
+gcloud secrets add-iam-policy-binding gemini-api-key \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project="${PROJECT_ID}"
+```
+
+### 5. Grant Vertex AI / Agent Runtime User Access
+Allow the service account to invoke Agent Runtime Reasoning Engines:
+```bash
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${RUNTIME_SA}" \
   --role="roles/aiplatform.user"
-
-# 3. Service Account Token Creator — REQUIRED for generating GCS signed URLs
-#    Without this, signed URL generation will fail at runtime.
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/iam.serviceAccountTokenCreator"
-
-# 4. Cloud Run invoker (if backend needs to call other services)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/run.invoker"
-
-# Verify the service account was created:
-gcloud iam service-accounts describe $SA_EMAIL --project $PROJECT_ID
 ```
 
-**Why each role is needed:**
-| Role | Why |
-|------|-----|
-| `roles/storage.objectAdmin` | Upload videos, audio, final MP4 to GCS; generate signed URLs |
-| `roles/aiplatform.user` | Call Gemini models via Vertex AI |
-| `roles/iam.serviceAccountTokenCreator` | Sign GCS signed URLs (V4 signing requires this) |
-| `roles/run.invoker` | Allows the service to invoke other Cloud Run services if needed |
+*(Note: We deliberately do **not** grant `roles/run.invoker` or broad project editor roles. Permissions are strictly scoped).*
 
 ---
 
-## Section 8 — Gemini Access
+## Section 7 — Local Testing & Model Proofs
 
-The application uses the Gemini API directly (not through Vertex AI endpoint), authenticated via an API key.
+Before deploying to the cloud, verify that your models work locally:
 
-**Step 1: Get a Gemini API key**
-1. Go to: https://aistudio.google.com/apikey
-2. Click **"Create API key"**
-3. Select your project: `$PROJECT_ID`
-4. Copy the key — you will need it in Section 10
-
-**Step 2: Verify the model ID**
-1. Go to: https://ai.google.dev/gemini-api/docs/models
-2. Find the current `gemini-2.5-flash` model ID (it may have a version suffix like `-001`)
-3. Update `GEMINI_MODEL` in your `.env` if the exact ID differs
-
-**Step 3: Test Gemini access locally**
-```bash
-# From the backend directory, after setting up your .env:
-cd backend
-source .venv/bin/activate
-
-# Quick test:
-python3 -c "
-import os
-from google import genai
-from google.genai import types
-
-client = genai.Client(api_key='YOUR_API_KEY_HERE')
-response = client.models.generate_content(
-    model='gemini-2.5-flash',
-    contents='Say hello in 5 words.',
-)
-print(response.text)
-"
-```
-
-If this prints a short greeting, Gemini is working.
-
----
-
-## Section 9 — Lyria Access
-
-**This is the most critical section. Complete it before running any proof scripts.**
-
-### Step 1: Check Lyria availability
-1. Go to: https://ai.google.dev/gemini-api/docs/music-generation
-2. Read the current access requirements
-3. Check whether Lyria requires separate enrollment or is available with a standard Gemini API key
-
-### Step 2: Verify the current model ID
-1. The current model may be `lyria-002`, `lyria-3.5`, or another ID
-2. Check the official docs linked above for the exact current model string
-3. Update `LYRIA_MODEL` in your `.env` with the verified ID
-
-### Step 3: Check quota
-1. Go to: https://console.cloud.google.com/iam-admin/quotas
-2. Filter by: "Generative Language API"
-3. Look for Lyria-related quotas
-4. Note the requests-per-minute limit — important for demo day
-
-### Step 4: Accept terms of service (if required)
-Some Lyria models require explicit acceptance of terms before generation works.
-1. Go to: https://aistudio.google.com/
-2. Navigate to the music generation section (if available)
-3. Accept any additional terms presented for music generation
-
-### Step 5: Test Lyria generation
-After running the backend proof scripts (Section 12), run:
 ```bash
 cd backend
-source .venv/bin/activate
-python3 scripts/proof_lyria_generation.py
-```
-This will generate a short MP3 using a test prompt.
-Listen to the output file `test_output_music.mp3` to verify it worked.
-
-### Step 6: Verify vocal support
-If you want to use "Song / Vocals" output type:
-1. Check current docs for whether vocal generation is supported
-2. If not, the UI will still show the option, but set `output_type: "instrumental"` as default
-
----
-
-## Section 10 — Environment Configuration
-
-### Backend `.env` file
-```bash
-cd agentic-cinema/backend
 cp ../.env.example .env
 ```
-
-Edit `.env` and fill in your values:
-
-```bash
-# Replace each value:
-
-GOOGLE_CLOUD_PROJECT_ID=agentic-cinema-demo   # your project ID from Section 3
-GCS_TEMP_BUCKET=agentic-cinema-temp-xxx       # your bucket name from Section 6
-GCP_REGION=us-central1
-
-GEMINI_API_KEY=AIza...                        # your API key from Section 8
-GEMINI_MODEL=gemini-3.8-flash                 # verify exact ID string in Section 8 (may have -001 suffix)
-
-LYRIA_MODEL=lyria-3.5                         # verify exact ID in Section 9
-
-PORT=8080
-FRONTEND_URL=http://localhost:3000            # update after deploying frontend
-MAX_VIDEO_SIZE_MB=100
-SIGNED_URL_TTL_HOURS=1
+Edit `.env` and configure:
+```ini
+GOOGLE_CLOUD_PROJECT_ID=your-gcp-project-id
+GCS_TEMP_BUCKET=movescore-temp-your-gcp-project-id
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-3.8-flash
+LYRIA_MODEL=lyria-3.5
 ```
 
-### Frontend `.env.local` file
+### Test 1: Video Analysis Proof (`gemini-3.8-flash`)
 ```bash
-cd agentic-cinema/frontend
-echo "NEXT_PUBLIC_BACKEND_URL=http://localhost:8080" > .env.local
+python scripts/proof_gemini_analysis.py path/to/sample_dance.mp4
 ```
+Expected: Prints structured choreography moments, tempo, and confidence.
+
+### Test 2: Lyria 3.5 Music Generation Proof (`lyria-3.5`)
+```bash
+python scripts/proof_lyria_generation.py
+```
+Expected: Generates `./test_output_music.mp3` via Gemini Interactions API.
 
 ---
 
-## Section 11 — Local Development
+## Section 8 — Artifact Registry Setup
 
-### Backend
-
+Create the Docker repository for Cloud Run images:
 ```bash
-cd agentic-cinema/backend
-
-# Create and activate a virtual environment:
-python3 -m venv .venv
-source .venv/bin/activate          # macOS/Linux
-# On Windows: .venv\Scripts\activate
-
-# Install dependencies:
-pip install -r requirements.txt
-
-# Verify installation:
-python3 -c "import fastapi; import google.genai; print('OK')"
-
-# Run the backend server:
-uvicorn main:app --host 0.0.0.0 --port 8080 --reload
-
-# The API will be available at:
-# http://localhost:8080
-# API docs: http://localhost:8080/docs
-```
-
-### Frontend
-
-```bash
-cd agentic-cinema/frontend
-
-# Install dependencies:
-npm install
-
-# Run the development server:
-npm run dev
-
-# The app will be available at:
-# http://localhost:3000
-```
-
-### Run both simultaneously
-
-Open two terminal windows:
-- Terminal 1: run the backend (port 8080)
-- Terminal 2: run the frontend (port 3000)
-
-The frontend reads `NEXT_PUBLIC_BACKEND_URL=http://localhost:8080` from `.env.local`.
-
----
-
-## Section 12 — Test the Local End-to-End Flow
-
-Follow this checklist in order. Complete each step before the next.
-
-### Prerequisites
-- [ ] Backend is running on port 8080
-- [ ] Frontend is running on port 3000
-- [ ] `.env` is filled in with real values
-- [ ] You have a 10–20 second dance video file (MP4)
-
-### Step A: Run the proof scripts first (recommended)
-
-```bash
-cd agentic-cinema/backend
-source .venv/bin/activate
-
-# Proof 1 — Gemini choreography analysis:
-python3 scripts/proof_gemini_analysis.py /path/to/your/dance_video.mp4
-
-# Expected output:
-# ✅ SUCCESS! Choreography analysis complete.
-# X movement moments detected
-# Intro → Hit → ...
-# Full JSON saved to: dance_video_choreography.json
-
-# Proof 2 — Lyria music generation:
-python3 scripts/proof_lyria_generation.py dance_video_choreography.json
-
-# Expected output:
-# ✅ SUCCESS! Music generated.
-# Output: ./test_output_music.mp3
-# Listen to the file to verify it sounds correct.
-
-# Proof 3 — Full end-to-end pipeline:
-python3 scripts/proof_end_to_end.py /path/to/your/dance_video.mp4 \
-  --style Afrobeat --mood Euphoric
-
-# Expected output:
-# ✅ END-TO-END PIPELINE COMPLETE
-# Final video signed URL: https://...
-# Open the URL in a browser to preview.
-```
-
-### Step B: Test the web application
-
-1. **Open** http://localhost:3000
-2. **Verify landing page** loads correctly (headline, CTA, workflow comparison)
-3. **Click "Start Creating →"** — should navigate to `/create`
-4. **Upload video**: drag-and-drop or click to upload your dance video
-   - Video preview should appear immediately
-   - If this fails: check backend logs for upload errors
-5. **Select preferences**: choose Style, Mood, Energy, Movement Feel
-6. **Click "Generate Music →"**
-   - Status should show: "Analyzing choreography..."
-   - After 15–30s: analysis result should appear (`X movement moments detected`)
-   - Then: music generation (~30–60s)
-   - Then: "Preparing your video..."
-7. **Verify final video plays** with the generated soundtrack
-8. **Download**: click "↓ Download Video" — should download the MP4
-9. **Generate Again**: click "↺ Generate Again" — should reuse choreography, re-generate music
-
-### Debugging common issues
-
-```bash
-# View backend logs:
-# (with the backend running in a terminal, logs appear there)
-
-# Check if backend is responding:
-curl http://localhost:8080/health
-# Expected: {"status":"ok","version":"1.0.0"}
-
-# Check CORS headers (from frontend origin):
-curl -H "Origin: http://localhost:3000" -I http://localhost:8080/health
-
-# Check GCS access:
-gcloud storage ls gs://$GCS_TEMP_BUCKET
-
-# Check Gemini API key:
-python3 -c "
-from config import settings
-print('Key set:', bool(settings.gemini_api_key))
-print('Model:', settings.gemini_model)
-"
-
-# If signed URLs fail — check service account token creator permission:
-gcloud projects get-iam-policy $PROJECT_ID \
-  --flatten="bindings[].members" \
-  --filter="bindings.role:roles/iam.serviceAccountTokenCreator"
-```
-
----
-
-## Section 13 — Artifact Registry
-
-Artifact Registry stores your Docker images for Cloud Run deployment.
-
-```bash
-# Create the Docker repository:
 gcloud artifacts repositories create agentic-cinema \
   --repository-format=docker \
-  --location=$REGION \
-  --description="Agentic Cinema Docker images" \
-  --project $PROJECT_ID
-
-# Configure Docker to authenticate with Artifact Registry:
-gcloud auth configure-docker ${REGION}-docker.pkg.dev
-
-# Verify the repository was created:
-gcloud artifacts repositories list --location=$REGION --project $PROJECT_ID
+  --location="${REGION}" \
+  --description="MoveScore Docker repository" \
+  --project="${PROJECT_ID}"
 ```
 
 ---
 
-## Section 14 — Deploy Backend to Cloud Run
+## Section 9 — Deploy to Gemini Enterprise Agent Platform (Agent Runtime)
 
-**Before deploying:**
-- [ ] Section 7 (service account) is complete
-- [ ] Section 13 (Artifact Registry) is complete
-- [ ] `.env` values are confirmed correct
-- [ ] Proof scripts passed locally
+Deploy the static MoveScore ADK agent wrapped with `AdkApp` as a Vertex AI Reasoning Engine resource:
 
 ```bash
-# Set your environment variables:
-export PROJECT_ID=agentic-cinema-demo        # your project ID
-export REGION=us-central1
-export GCS_TEMP_BUCKET=agentic-cinema-temp-xxx
-export GEMINI_API_KEY=AIza...               # your Gemini API key
-export GEMINI_MODEL=gemini-3.8-flash
-export LYRIA_MODEL=lyria-3.5
-export RUNTIME_SA=movescore-backend-sa@${PROJECT_ID}.iam.gserviceaccount.com
+cd ..  # return to repo root
+python scripts/deploy-agent-runtime.py
+```
 
-# Run the deploy script:
-cd agentic-cinema
-chmod +x scripts/deploy-backend.sh
+This outputs your deployed resource:
+```
+SUCCESS: Agent successfully deployed to Agent Runtime!
+Reasoning Engine Resource: projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/REASONING_ENGINE_ID
+```
+Copy this resource string; you will pass it to the backend deployment as `AGENT_ENGINE_RESOURCE_NAME`.
+
+---
+
+## Section 10 — Deploy Backend to Cloud Run
+
+Deploy the FastAPI backend container to Cloud Run using Cloud Build:
+
+```bash
 ./scripts/deploy-backend.sh
 ```
 
-**After deployment:**
+Or deploy manually via gcloud:
 ```bash
-# Get the backend URL:
-BACKEND_URL=$(gcloud run services describe movescore-backend \
-  --region $REGION \
-  --format='value(status.url)' \
-  --project $PROJECT_ID)
+export IMAGE_NAME="${REGION}-docker.pkg.dev/${PROJECT_ID}/agentic-cinema/movescore-backend:latest"
 
-echo "Backend URL: $BACKEND_URL"
-# Save this URL — you need it for the frontend deployment.
+# Build image using Cloud Build
+gcloud builds submit ./backend --tag "${IMAGE_NAME}" --project "${PROJECT_ID}"
 
-# Verify the backend is healthy:
-curl $BACKEND_URL/health
-# Expected: {"status":"ok","version":"1.0.0"}
+# Deploy to Cloud Run
+gcloud run deploy movescore-backend \
+  --image "${IMAGE_NAME}" \
+  --region "${REGION}" \
+  --platform managed \
+  --service-account "${RUNTIME_SA}" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT_ID=${PROJECT_ID}" \
+  --set-env-vars "GCS_TEMP_BUCKET=${GCS_TEMP_BUCKET}" \
+  --set-env-vars "GEMINI_MODEL=gemini-3.8-flash" \
+  --set-env-vars "LYRIA_MODEL=lyria-3.5" \
+  --set-env-vars "GCP_REGION=${REGION}" \
+  --set-env-vars "SERVICE_ACCOUNT_EMAIL=${RUNTIME_SA}" \
+  --set-env-vars "AGENT_ENGINE_RESOURCE_NAME=${AGENT_ENGINE_RESOURCE_NAME}" \
+  --set-secrets "GEMINI_API_KEY=gemini-api-key:latest" \
+  --timeout 600 \
+  --memory 2Gi \
+  --cpu 2 \
+  --concurrency 10 \
+  --allow-unauthenticated \
+  --project "${PROJECT_ID}"
 ```
 
-**Note down the backend URL** (e.g. `https://movescore-backend-abc123-uc.a.run.app`).
+Obtain the backend URL:
+```bash
+BACKEND_URL=$(gcloud run services describe movescore-backend --region "${REGION}" --format="value(status.url)")
+echo "Backend URL: ${BACKEND_URL}"
+```
+
+Verify backend health:
+```bash
+curl -f "${BACKEND_URL}/health"
+# Returns: {"status":"ok","version":"1.0.0"}
+```
 
 ---
 
-## Section 15 — Deploy Frontend to Cloud Run
+## Section 11 — Deploy Frontend to Cloud Run
 
-**The frontend must know the backend URL at build time** (Next.js bakes it in via `NEXT_PUBLIC_BACKEND_URL`).
+The Next.js frontend builds with the deployed `BACKEND_URL` baked into its client bundles.
 
 ```bash
-# Set the backend URL (from Section 14):
-export BACKEND_URL=https://movescore-backend-abc123-uc.a.run.app   # replace with real URL
-
-# Deploy the frontend:
-cd agentic-cinema
-chmod +x scripts/deploy-frontend.sh
+export BACKEND_URL="${BACKEND_URL}"
 ./scripts/deploy-frontend.sh
 ```
 
-**After deployment:**
+Obtain the frontend URL:
 ```bash
-# Get the frontend URL:
-FRONTEND_URL=$(gcloud run services describe movescore-frontend \
-  --region $REGION \
-  --format='value(status.url)' \
-  --project $PROJECT_ID)
-
-echo "Frontend URL: $FRONTEND_URL"
-# This is your live application URL.
+FRONTEND_URL=$(gcloud run services describe movescore-frontend --region "${REGION}" --format="value(status.url)")
+echo "Frontend URL: ${FRONTEND_URL}"
 ```
 
 ---
 
-## Section 16 — CORS / Frontend-Backend Connectivity
+## Section 12 — Configure CORS on Backend
 
-The backend only accepts requests from the configured `FRONTEND_URL`. After deploying the frontend, update the backend with the real frontend URL:
+Now that the frontend is live, lock down backend CORS strictly to the deployed frontend domain:
 
 ```bash
-# Update the backend CORS setting with the real frontend URL:
 gcloud run services update movescore-backend \
-  --region $REGION \
+  --region "${REGION}" \
   --update-env-vars "FRONTEND_URL=${FRONTEND_URL}" \
-  --project $PROJECT_ID
+  --project "${PROJECT_ID}"
 ```
 
-**How it works:**
-- `FRONTEND_URL` in `main.py` becomes the only allowed CORS origin
-- The backend rejects requests from any other origin in production
-- Wildcard `*` is NOT used
+---
 
-**Verify CORS is working:**
+## Section 13 — Production Smoke Tests
+
+### Test 1: Health Check
 ```bash
-# Test a preflight request from the frontend origin:
-curl -X OPTIONS \
-  -H "Origin: ${FRONTEND_URL}" \
-  -H "Access-Control-Request-Method: POST" \
-  ${BACKEND_URL}/run-agent \
-  -I
-# Should see: access-control-allow-origin: <your frontend URL>
+curl -i "${BACKEND_URL}/health"
 ```
 
----
-
-## Section 17 — Production Verification
-
-Run these checks after both services are deployed:
-
+### Test 2: Upload Video & Duration Validation
+Upload a valid MP4 (<60s):
 ```bash
-# 1. Check Cloud Run service statuses:
-gcloud run services list --region $REGION --project $PROJECT_ID
+curl -i -X POST "${BACKEND_URL}/upload" \
+  -F "file=@path/to/short_dance.mp4"
+```
+Verify response includes `gcs_uri` and `preview_signed_url`.
 
-# 2. Check backend health:
-curl ${BACKEND_URL}/health
-
-# 3. View backend logs (last 50 lines):
-gcloud logging read \
-  "resource.type=cloud_run_revision AND resource.labels.service_name=movescore-backend" \
-  --limit=50 \
-  --project $PROJECT_ID
-
-# 4. View frontend logs:
-gcloud logging read \
-  "resource.type=cloud_run_revision AND resource.labels.service_name=movescore-frontend" \
-  --limit=20 \
-  --project $PROJECT_ID
-
-# 5. Verify GCS bucket is accessible from backend:
-# Upload a test file to verify permissions:
-echo "test" | gcloud storage cp - gs://$GCS_TEMP_BUCKET/test.txt
-gcloud storage ls gs://$GCS_TEMP_BUCKET/
-gcloud storage rm gs://$GCS_TEMP_BUCKET/test.txt
-
-# 6. Open the frontend in a browser:
-echo "Open: $FRONTEND_URL"
+### Test 3: Duration Rejection Test (>60s)
+Upload a test file longer than 60 seconds:
+```bash
+curl -i -X POST "${BACKEND_URL}/upload" \
+  -F "file=@path/to/long_video_70s.mp4"
+```
+Verify response is HTTP 400:
+```json
+{"detail":"Video duration is 70.0s. Maximum supported duration is 60 seconds."}
 ```
 
----
-
-## Section 18 — Demo Readiness Checklist
-
-Go through this list before your hackathon demo:
-
-- [ ] Frontend URL is live and accessible: `$FRONTEND_URL`
-- [ ] Backend health check passes: `curl $BACKEND_URL/health`
-- [ ] Landing page loads correctly (headline, CTA, workflow comparison)
-- [ ] `/create` page loads correctly
-- [ ] Video upload works (test with your demo clip)
-- [ ] Gemini analysis completes and shows movement summary
-- [ ] Lyria generation completes and produces audible music
-- [ ] FFmpeg combine produces a working downloadable MP4
-- [ ] Download button works
-- [ ] "Generate Again" works (preserves choreography, generates new music)
-- [ ] Lyria quota is sufficient (check before demo — pre-generate if unsure)
-- [ ] Demo dance clip is ready (10–20 seconds, good lighting, clear movement)
-- [ ] You've done a full run-through of the demo at least once
-- [ ] IBM Bob development evidence is documented in README.md
-- [ ] Git repository is clean (no .env files, no service-account.json)
-- [ ] GitHub repository is public (or accessible to judges)
-- [ ] README.md is complete with all required sections
-- [ ] Demo recording is ready as a backup
-
-**Pre-generate demo audio (optional backup):**
-If Lyria quota is limited, generate your demo audio the day before and keep the final video ready as a local backup. This ensures your demo runs smoothly even under quota pressure.
+### Test 4: End-to-End Pipeline Execution
+```bash
+curl -i -X POST "${BACKEND_URL}/run-agent" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "gcs_uri": "'"${GCS_URI}"'",
+    "user_preferences": {
+      "style": "Afrobeat",
+      "mood": "Euphoric",
+      "energy": "high",
+      "output_type": "instrumental"
+    }
+  }'
+```
+Verify response returns `final_video_signed_url`, `choreography_summary`, and `music_prompt`.
 
 ---
 
-## Section 19 — Cost and Cleanup
+## Section 14 — Logs & Debugging
 
-### Expected costs during development / hackathon
-- **Cloud Run**: scales to zero — no cost when idle
-- **Cloud Storage**: minimal (small files, short retention)
-- **Gemini API**: pay-per-token; choreography analysis + music plan per run
-- **Lyria**: per-generation cost — check current pricing
-- **Artifact Registry**: minimal storage cost for Docker images
-- **Cloud Build**: per-build minute
-
-### Cleanup after the hackathon
-
-> ⚠️ **DO NOT RUN THESE COMMANDS UNTIL YOU WANT TO PERMANENTLY DELETE YOUR PROJECT RESOURCES.**
+Stream real-time production logs:
 
 ```bash
-# Delete Cloud Run services:
-gcloud run services delete movescore-backend --region $REGION --project $PROJECT_ID --quiet
-gcloud run services delete movescore-frontend --region $REGION --project $PROJECT_ID --quiet
+# Backend logs
+gcloud beta run services logs tail movescore-backend --region "${REGION}"
 
-# Delete Artifact Registry repository (and all Docker images):
-gcloud artifacts repositories delete agentic-cinema \
-  --location=$REGION --project $PROJECT_ID --quiet
-
-# Delete GCS bucket and all contents:
-gcloud storage rm -r gs://$GCS_TEMP_BUCKET
-
-# Delete service account:
-gcloud iam service-accounts delete \
-  movescore-backend-sa@${PROJECT_ID}.iam.gserviceaccount.com \
-  --project $PROJECT_ID --quiet
-
-# Optionally delete the entire project (IRREVERSIBLE):
-# gcloud projects delete $PROJECT_ID
+# Agent Runtime logs
+gcloud logging read "resource.type=aiplatform.googleapis.com/ReasoningEngine" --limit 50 --format="json"
 ```
 
 ---
 
-*Generated with IBM Bob (Plan Mode). See README.md for project overview.*
+## Section 15 — Cleanup Instructions
+
+To avoid ongoing cloud charges after testing or demonstration:
+
+```bash
+# Delete Cloud Run services
+gcloud run services delete movescore-frontend --region "${REGION}" --quiet
+gcloud run services delete movescore-backend --region "${REGION}" --quiet
+
+# Delete Artifact Registry images
+gcloud artifacts repositories delete agentic-cinema --location "${REGION}" --quiet
+
+# Delete GCS bucket
+gcloud storage rm -r "gs://${GCS_TEMP_BUCKET}"
+
+# Delete Secret
+gcloud secrets delete gemini-api-key --quiet
+
+# Delete Service Account
+gcloud iam service-accounts delete "${RUNTIME_SA}" --quiet
+```

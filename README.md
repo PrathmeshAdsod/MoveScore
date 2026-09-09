@@ -47,9 +47,9 @@ flowchart TD
     A -->|Run agent| D[POST /run-agent]
     D --> E[Cloud Run Backend\nFastAPI + ADK]
 
-    E --> F[Tool 1: analyze_choreography\nGemini 2.5 Flash\nFiles API + response_schema]
-    F -->|ChoreographySchema JSON| G[Tool 2: plan_music\nGemini 2.5 Flash text\nchoreography + user prefs]
-    G -->|Timestamp-aware\nmusic prompt| H[Tool 3: generate_music\nLyria via google-genai SDK]
+    E --> F[Tool 1: analyze_choreography\nGemini 3.8 Flash\nFiles API + response_schema]
+    F -->|ChoreographySchema JSON| G[Tool 2: plan_music\nGemini 3.8 Flash text\nchoreography + user prefs]
+    G -->|Timestamp-aware\nmusic prompt| H[Tool 3: generate_music\nLyria 3.5 via google-genai SDK]
     H -->|MP3 audio| I[GCS Temp]
     I --> J[Tool 4: combine_media\nFFmpeg]
     C --> J
@@ -70,8 +70,8 @@ flowchart TD
 | **Next.js on Cloud Run** | Frontend — landing page + creation interface |
 | **FastAPI on Cloud Run** | Backend — ADK agent, Gemini, Lyria, FFmpeg |
 | **Google Cloud Storage** | Temporary file storage (24h lifecycle) |
-| **Gemini 2.5 Flash** | Video analysis + music plan reasoning |
-| **Lyria** | AI music generation (via google-genai SDK) |
+| **Gemini 3.8 Flash** | Video analysis + music plan reasoning |
+| **Lyria 3.5** | AI music generation (via google-genai SDK) |
 | **Google ADK** | Workflow agent orchestration |
 | **FFmpeg** | Audio/video combine |
 

@@ -18,8 +18,8 @@ This project was built using **IBM Bob** (Plan Mode + Agent Mode) as the develop
 
 - **Frontend**: Next.js (App Router, TypeScript) on Cloud Run
 - **Backend**: Python / FastAPI on Cloud Run
-- **AI — Video Analysis**: Gemini (multimodal, `gemini-2.5-flash`)
-- **AI — Music Generation**: Lyria (via `google-genai` SDK)
+- **AI — Video Analysis**: Gemini (multimodal, `gemini-3.8-flash`)
+- **AI — Music Generation**: Lyria 3.5 (via `google-genai` SDK)
 - **AI Agent**: Google ADK single workflow agent (`ChoreographyMusicAgent`)
 - **Storage**: Google Cloud Storage (temporary, 24h lifecycle)
 - **Media Processing**: FFmpeg (audio+video combine)

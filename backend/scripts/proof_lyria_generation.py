@@ -57,8 +57,8 @@ def main() -> None:
     print("MoveScore — Lyria 3.5 Music Generation Proof")
     print(f"{'='*60}")
     print(f"Model:   {settings.lyria_model}")
-    print(f"API:     Gemini Interactions API (NOT Live/RealTime)")
-    print(f"Output:  MP3 (44.1 kHz stereo)")
+    print("API:     Gemini Interactions API (NOT Live/RealTime)")
+    print("Output:  MP3 (44.1 kHz stereo)")
     print(f"{'='*60}\n")
 
     # Determine music prompt
@@ -69,8 +69,8 @@ def main() -> None:
         choreo_path = Path(sys.argv[1])
         if choreo_path.exists():
             print(f"Loading choreography from: {choreo_path}")
-            from schemas.choreography import ChoreographySchema
             from schemas.api import UserPreferences
+            from schemas.choreography import ChoreographySchema
             from services.gemini_service import plan_music
 
             with open(choreo_path) as f:
@@ -122,11 +122,11 @@ def main() -> None:
         sys.exit(1)
 
     size_kb = output_path.stat().st_size / 1024
-    print(f"SUCCESS! Music generated.")
+    print("SUCCESS! Music generated.")
     print(f"   Output:   {output_path.resolve()}")
     print(f"   Size:     {size_kb:.1f} KB")
-    print(f"   Format:   MP3 (Lyria 3.5 Interactions API standard output)")
-    print(f"\nPlay the file to verify the output sounds correct.")
+    print("   Format:   MP3 (Lyria 3.5 Interactions API standard output)")
+    print("\nPlay the file to verify the output sounds correct.")
     print("Then run proof_end_to_end.py for the complete pipeline test.\n")
 
 

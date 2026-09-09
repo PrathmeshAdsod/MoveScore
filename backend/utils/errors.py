@@ -32,6 +32,14 @@ class InvalidVideoFormatError(AgenticCinemaError):
         )
 
 
+class InvalidVideoDurationError(AgenticCinemaError):
+    def __init__(self, duration_sec: float, max_sec: float = 60.0) -> None:
+        super().__init__(
+            f"Video duration is {duration_sec:.1f}s. Maximum supported duration is {max_sec:.0f} seconds.",
+            status_code=400,
+        )
+
+
 class ChoreographyAnalysisError(AgenticCinemaError):
     def __init__(self, detail: str) -> None:
         super().__init__(

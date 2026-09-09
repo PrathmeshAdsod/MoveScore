@@ -6,9 +6,9 @@ Tests the prompt construction logic without making any API calls.
 
 from __future__ import annotations
 
+from prompts.music_plan import build_music_plan_prompt, build_music_plan_prompt_from_dict
 from schemas.api import UserPreferences
 from schemas.choreography import ChoreographySchema
-from prompts.music_plan import build_music_plan_prompt, build_music_plan_prompt_from_dict
 
 
 def _make_choreography() -> ChoreographySchema:
@@ -88,7 +88,9 @@ class TestMusicPlanPrompt:
         assert "vocal" in prompt.lower() or "song" in prompt.lower()
 
     def test_instrumental_output_mentioned(self) -> None:
-        prompt = build_music_plan_prompt(_make_choreography(), _make_prefs(output_type="instrumental"))
+        prompt = build_music_plan_prompt(
+            _make_choreography(), _make_prefs(output_type="instrumental")
+        )
         assert "instrumental" in prompt.lower()
 
     def test_no_preferences_handled(self) -> None:

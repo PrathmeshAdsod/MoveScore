@@ -15,8 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from config import settings
-from routes import upload as upload_router
 from routes import run_agent as run_agent_router
+from routes import upload as upload_router
 from schemas.api import HealthResponse
 from utils.errors import AgenticCinemaError
 
@@ -52,11 +52,10 @@ app.add_middleware(
     allow_headers=["Content-Type", "Accept", "X-Request-ID"],
 )
 
+
 # ── Global error handler ──────────────────────────────────────────────────────
 @app.exception_handler(AgenticCinemaError)
-async def agentic_cinema_error_handler(
-    request: Request, exc: AgenticCinemaError
-) -> JSONResponse:
+async def agentic_cinema_error_handler(request: Request, exc: AgenticCinemaError) -> JSONResponse:
     logger.error("AgenticCinemaError: %s", exc.message)
     return JSONResponse(
         status_code=exc.status_code,
@@ -65,9 +64,7 @@ async def agentic_cinema_error_handler(
 
 
 @app.exception_handler(Exception)
-async def unhandled_error_handler(
-    request: Request, exc: Exception
-) -> JSONResponse:
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.error("Unhandled error on %s: %s", request.url, exc, exc_info=True)
     return JSONResponse(
         status_code=500,
