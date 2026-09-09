@@ -1,19 +1,25 @@
 /**
- * ChipSelector — Compact pill/chip multi-select with "+ More" expand.
+ * ChipSelector — Compact pill/chip selector with "+ More" expand.
  *
  * Matches the Hugging Face provider selector style from the reference image:
  * - Small rounded pills with subtle border
  * - Selected: dark filled background
- * - First N items visible, "+ More" expands inline
- * - No hover tooltips (intentionally removed per plan)
+ * - Hover: slightly darker surface
+ * - First N items visible; "+ X more" expands inline
+ * - Optional 1-2 sentence tooltip shown on hover via CSS .chip-wrap / .chip-tooltip
  */
 
 "use client";
 
 import { useState } from "react";
 
+export interface ChipOption {
+  label: string;
+  tooltip?: string;
+}
+
 interface ChipSelectorProps {
-  options: string[];
+  options: ChipOption[];
   selected: string | null;
   onSelect: (value: string | null) => void;
   initialVisibleCount?: number;
@@ -27,35 +33,41 @@ export default function ChipSelector({
 }: ChipSelectorProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const visibleOptions = expanded ? options : options.slice(0, initialVisibleCount);
-  const hasMore = options.length > initialVisibleCount;
+  const visible = expanded ? options : options.slice(0, initialVisibleCount);
+  const hiddenCount = options.length - initialVisibleCount;
 
-  const handleClick = (option: string) => {
-    onSelect(selected === option ? null : option);
+  const handleClick = (label: string) => {
+    onSelect(selected === label ? null : label);
   };
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", alignItems: "center" }}>
-      {visibleOptions.map((option) => (
-        <button
-          key={option}
-          type="button"
-          className={`chip${selected === option ? " selected" : ""}`}
-          onClick={() => handleClick(option)}
-          aria-pressed={selected === option}
-        >
-          {option}
-        </button>
+      {visible.map((opt) => (
+        <div key={opt.label} className="chip-wrap">
+          <button
+            type="button"
+            className={`chip${selected === opt.label ? " selected" : ""}`}
+            onClick={() => handleClick(opt.label)}
+            aria-pressed={selected === opt.label}
+          >
+            {opt.label}
+          </button>
+          {opt.tooltip && (
+            <span className="chip-tooltip" role="tooltip">
+              {opt.tooltip}
+            </span>
+          )}
+        </div>
       ))}
 
-      {hasMore && (
+      {hiddenCount > 0 && (
         <button
           type="button"
           className="chip-more"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
         >
-          {expanded ? "Show less" : `+${options.length - initialVisibleCount} more`}
+          {expanded ? "Show less" : `+${hiddenCount} more`}
         </button>
       )}
     </div>

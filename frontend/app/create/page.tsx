@@ -200,7 +200,7 @@ export default function CreatePage() {
             color: "var(--text)",
           }}
         >
-          Agentic Cinema
+          MoveScore
         </Link>
         <span className="text-light text-small">Dance first. Music second.</span>
       </header>
@@ -346,14 +346,6 @@ export default function CreatePage() {
         </div>
       </main>
 
-      {/* Responsive styles */}
-      <style>{`
-        @media (max-width: 720px) {
-          .create-grid {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

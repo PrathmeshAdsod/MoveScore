@@ -24,7 +24,7 @@ export default function LandingPage() {
             marginBottom: "2.5rem",
           }}
         >
-          Agentic Cinema
+          MoveScore
         </div>
 
         {/* Hero headline */}
@@ -132,9 +132,7 @@ export default function LandingPage() {
           className="text-light text-small"
           style={{ marginTop: "3rem" }}
         >
-          Powered by Gemini · Lyria · Google ADK
-          <br />
-          Built with IBM Bob
+          Powered by Gemini · Lyria · Google ADK · Built with IBM Bob
         </div>
       </div>
     </main>
